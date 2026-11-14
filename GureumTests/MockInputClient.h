@@ -13,6 +13,8 @@ NS_ASSUME_NONNULL_BEGIN
 
 @interface MockInputClient : NSTextView<IMKTextInput, IMKUnicodeTextInput>
 
+@property(nonatomic, readonly) NSArray<NSString *> *selectedInputModeRequests;
+
 - (NSString *)markedString;
 - (NSString *)selectedString;
 

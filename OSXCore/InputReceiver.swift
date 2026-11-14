@@ -79,6 +79,9 @@ public class InputReceiver: InputTextDelegate {
   private var hangulAutocorrectionSuppressed = false
   private var pendingAutomaticLayoutChange: AutomaticLayoutChangeDirection?
   var automaticLayoutChangeCommitted: (AutomaticLayoutChangeDirection) -> Void = { _ in }
+  var selectsClientInputModeForLayoutChanges: () -> Bool = {
+    !InputMethodIdentity.current.isBaram
+  }
   var romanAutocorrectionAvailable: () -> Bool = { InputMethodIdentity.current.isBaram }
   var romanAutocorrectionSecureInput: () -> Bool = {
     PhysicalKeyEventSource.shared.secureInputEnabled
@@ -503,7 +506,9 @@ public class InputReceiver: InputTextDelegate {
         cancelComposition()
         if result.action != .cancel {
           commitCompositionEvent(sender)
-          if case .layout(let mode) = result.action, layout != .toggleByCapsLock {
+          if case .layout(let mode) = result.action, layout != .toggleByCapsLock,
+            selectsClientInputModeForLayoutChanges()
+          {
             (sender as IMKTextInput).selectMode(mode)
           }
         } else {

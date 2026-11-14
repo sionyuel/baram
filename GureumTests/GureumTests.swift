@@ -1264,6 +1264,32 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
     }
   }
 
+  func testBaramInternalLayoutToggleDoesNotLeaveTheBaramInputSource() {
+    let app = app()
+    app.controller.receiver.selectsClientInputModeForLayoutChanges = { false }
+    app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+
+    _ = app.controller.receiver.input(event: .changeLayout(.roman, true), client: app.client)
+    XCTAssertTrue(app.controller.receiver.composer.delegate is RomanComposer)
+    XCTAssertTrue(app.client.selectedInputModeRequests.isEmpty)
+
+    _ = app.controller.receiver.input(event: .changeLayout(.hangul, true), client: app.client)
+    XCTAssertTrue(app.controller.receiver.composer.delegate is HangulComposer)
+    XCTAssertTrue(app.client.selectedInputModeRequests.isEmpty)
+  }
+
+  func testNonBaramLayoutToggleStillSelectsTheRequestedInputMode() {
+    let app = app()
+    app.controller.receiver.selectsClientInputModeForLayoutChanges = { true }
+    app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+
+    _ = app.controller.receiver.input(event: .changeLayout(.roman, true), client: app.client)
+
+    XCTAssertEqual(
+      app.client.selectedInputModeRequests,
+      [app.controller.receiver.composer.inputMode])
+  }
+
   func testReverseCorrectionUsesTheSelectedRomanKeyboardMapping() {
     for (source, type) in [
       (GureumInputSource.qwerty, RomanComposer.ComposerType.qwerty),
