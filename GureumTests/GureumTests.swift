@@ -1293,6 +1293,23 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
     XCTAssertEqual(app.client.string, "apple ")
   }
 
+  func testBufferedRomanReplacementRangeSurvivesVanishedMarkedRange() {
+    XCTAssertEqual(
+      InputReceiver.bufferedRomanReplacementRange(
+        markedRange: NSRange(location: 7, length: 5),
+        selectionRange: NSRange(location: 12, length: 0), composedUTF16Length: 5),
+      NSRange(location: 7, length: 5))
+    XCTAssertEqual(
+      InputReceiver.bufferedRomanReplacementRange(
+        markedRange: NSRange(location: NSNotFound, length: NSNotFound),
+        selectionRange: NSRange(location: 12, length: 0), composedUTF16Length: 5),
+      NSRange(location: 7, length: 5))
+    XCTAssertNil(
+      InputReceiver.bufferedRomanReplacementRange(
+        markedRange: NSRange(location: NSNotFound, length: NSNotFound),
+        selectionRange: NSRange(location: 3, length: 0), composedUTF16Length: 5))
+  }
+
   func testSlashCommandsBypassTheMarkedWordBuffer() {
     let app = app()
     app.inputKeys("/compact/compact")

@@ -67,6 +67,7 @@ public class InputReceiver: InputTextDelegate {
   var hasSelectionRange: Bool = false
   private weak var bufferedRomanClient: AnyObject?
   private var romanAutocorrectionSuppressed = false
+  private var pendingRomanCommitReplacementRange: NSRange?
   var romanAutocorrectionAvailable: () -> Bool = { InputMethodIdentity.current.isBaram }
   var romanAutocorrectionSecureInput: () -> Bool = {
     PhysicalKeyEventSource.shared.secureInputEnabled
@@ -101,6 +102,21 @@ public class InputReceiver: InputTextDelegate {
     if let client, !client.isEmpty { return client }
     if let frontmostApplication, !frontmostApplication.isEmpty { return frontmostApplication }
     return nil
+  }
+
+  static func bufferedRomanReplacementRange(
+    markedRange: NSRange, selectionRange: NSRange, composedUTF16Length: Int
+  ) -> NSRange? {
+    guard composedUTF16Length > 0 else { return nil }
+    if markedRange.location != NSNotFound, markedRange.length > 0 {
+      return markedRange
+    }
+    guard selectionRange.location != NSNotFound, selectionRange.length == 0,
+      selectionRange.location >= composedUTF16Length
+    else { return nil }
+    return NSRange(
+      location: selectionRange.location - composedUTF16Length,
+      length: composedUTF16Length)
   }
 
   private func bufferedRomanInput(
@@ -144,6 +160,9 @@ public class InputReceiver: InputTextDelegate {
       let converted =
         isKnownEnglish
         ? nil : RomanLayoutAutocorrector.convert(roman.bufferedPhysicalKeys, keyboard: keyboard)
+      pendingRomanCommitReplacementRange = Self.bufferedRomanReplacementRange(
+        markedRange: client.markedRange(), selectionRange: client.selectedRange(),
+        composedUTF16Length: (roman.composedString as NSString).length)
       roman.finishBufferedWord(replacingWith: converted)
       bufferedRomanClient = nil
       if converted != nil {
@@ -378,6 +397,8 @@ extension InputReceiver {  // IMKServerInput
     }
     // 왠지는 모르겠지만 프로그램마다 동작이 달라서 조합을 반드시 마쳐주어야 한다
     // 터미널과 같이 조합중에 리턴키 먹는 프로그램은 조합 중인 문자가 없고 보통은 있다
+    let pendingReplacementRange = pendingRomanCommitReplacementRange
+    pendingRomanCommitReplacementRange = nil
     let commitString = composer.dequeueCommitString()
 
     // 커밋할 문자가 없으면 중단
@@ -390,8 +411,9 @@ extension InputReceiver {  // IMKServerInput
       sender as! NSObject, commitString)
     let markedRange = sender.markedRange()
     var range =
-      markedRange.location != NSNotFound && markedRange.length > 0
-      ? markedRange : controller.selectionRange()
+      pendingReplacementRange
+      ?? (markedRange.location != NSNotFound && markedRange.length > 0
+        ? markedRange : controller.selectionRange())
     dlog(debugLogging, "LOGGING::COMMIT::%lu:%lu:%@", range.location, range.length, commitString)
     // NSLog("range1 \(range)")글
     if range.length == 0 {
