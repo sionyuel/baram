@@ -1173,6 +1173,18 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
     }
   }
 
+  func testTwoSetKeepsNativeResyllabificationAndBackspaceBehavior() {
+    let app = app()
+    app.controller.receiver.composer.inputMode = GureumInputSource.han2.rawValue
+    app.inputKeys("rksk")
+    XCTAssertEqual(app.client.string, "가나")
+
+    app.inputDelete()
+
+    XCTAssertEqual(app.client.string, "가ㄴ")
+    XCTAssertTrue(app.controller.receiver.composer.delegate is HangulComposer)
+  }
+
   func testReverseCorrectionBackspaceReplaysWholeWord() {
     let app = app()
     app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
@@ -1181,6 +1193,64 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
     app.inputKeys("e")
     app.inputText(" ", key: .space)
     XCTAssertEqual(app.client.string, "apple ")
+  }
+
+  func testBufferedHangulBackspaceDeletesPreviouslyCompletedSyllablesAsCharacters() {
+    let app = app()
+    app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    app.inputKeys("jfshe")
+    XCTAssertEqual(app.client.string, "안녀")
+    for expected in ["안ㄴ", "안", ""] {
+      app.inputDelete()
+      XCTAssertEqual(app.client.string, expected)
+    }
+  }
+
+  func testBufferedHangulBackspaceStillDecomposesTheFirstActiveSyllable() {
+    let app = app()
+    app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    app.inputKeys("jfs")
+    for expected in ["아", "ㅇ", ""] {
+      app.inputDelete()
+      XCTAssertEqual(app.client.string, expected)
+    }
+  }
+
+  func testBufferedHangulCanContinueAfterDeletingBackToACompletedBoundary() {
+    let app = app()
+    app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    app.inputKeys("jfshe")
+    app.inputDelete()
+    app.inputDelete()
+    app.inputKeys("jfs")
+    XCTAssertEqual(app.client.string, "안안")
+    app.inputText(" ", key: .space)
+    XCTAssertEqual(app.client.string, "안안 ")
+  }
+
+  func testBufferedHangulBackspacePreservesMultipleCompletedBoundaries() {
+    let app = app()
+    app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    app.inputKeys("jfsheajfs")
+    XCTAssertEqual(app.client.string, "안녕안")
+    for expected in ["안녕아", "안녕ㅇ", "안녕", "안", ""] {
+      app.inputDelete()
+      XCTAssertEqual(app.client.string, expected)
+    }
+    app.inputKeys("apple")
+    app.inputText(" ", key: .space)
+    XCTAssertEqual(app.client.string, "apple ")
+  }
+
+  func testBufferedHangulReplayDoesNotReopenACompletedSyllableAfterNewVowels() {
+    let app = app()
+    app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    app.inputKeys("jfshe")
+    app.inputDelete()
+    app.inputDelete()
+    app.inputKeys("ef")
+    app.inputDelete()
+    XCTAssertEqual(app.client.string, "안ㅕ")
   }
 
   func testReverseCorrectionReleasesBackspaceAfterDeletingTheWholeBuffer() {

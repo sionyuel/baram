@@ -16,6 +16,9 @@ let debugInputReceiver = false
 /// Converts an input-method-owned physical key sequence without inspecting document text.
 enum RomanLayoutAutocorrector {
   private static let sentencePunctuation = CharacterSet(charactersIn: ".,!?;:'\"()~…“”‘’")
+  private static let supportedHangulKeyboards: Set<String> = [
+    "3f", "39", "3fs", "39s", "3s", "32", "3gs", "3-2011", "3-2012", "ahn",
+  ]
   private static let commonTopLevelDomains: Set<String> = [
     "ai", "app", "biz", "cloud", "co", "com", "dev", "info", "io", "kr", "me", "net",
     "org", "tech", "xyz",
@@ -23,6 +26,10 @@ enum RomanLayoutAutocorrector {
 
   static func englishWordCandidates(_ output: String) -> [String] {
     output.components(separatedBy: sentencePunctuation).filter { !$0.isEmpty }
+  }
+
+  static func supportsHangulKeyboard(_ identifier: String) -> Bool {
+    supportedHangulKeyboards.contains(identifier)
   }
 
   static func isKnownEnglishExpression(
@@ -57,8 +64,7 @@ enum RomanLayoutAutocorrector {
   }
 
   static func convert(_ keys: String, keyboard: String) -> String? {
-    let supported = ["3f", "39", "3fs", "39s", "3s", "32", "3gs", "3-2011", "3-2012", "ahn"]
-    guard supported.contains(keyboard), (3...64).contains(keys.count),
+    guard supportsHangulKeyboard(keyboard), (3...64).contains(keys.count),
       keys.unicodeScalars.allSatisfy({ (33...126).contains($0.value) }),
       let context = HGInputContext(keyboardIdentifier: keyboard)
     else { return nil }
@@ -165,6 +171,10 @@ public class InputReceiver: InputTextDelegate {
       resetHangulAutocorrection()
       return nil
     }
+    guard RomanLayoutAutocorrector.supportsHangulKeyboard(hangul.keyboardIdentifier) else {
+      resetHangulAutocorrection()
+      return nil
+    }
     let bundle = Self.autocorrectionBundleIdentifier(
       client: client.bundleIdentifier(),
       frontmostApplication: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
@@ -213,8 +223,8 @@ public class InputReceiver: InputTextDelegate {
       return InputResult(processed: false, action: .commit)
     }
     if key == .delete, hangul.isBufferingWord {
-      hangul.deleteBufferedKey(client: client)
-      if !bufferedHangulRomanOutput.isEmpty { bufferedHangulRomanOutput.removeLast() }
+      let removedKeys = hangul.deleteBufferedKey(client: client)
+      bufferedHangulRomanOutput.removeLast(min(removedKeys, bufferedHangulRomanOutput.count))
       if !hangul.isBufferingWord {
         bufferedHangulClient = nil
         bufferedHangulStartLocation = nil

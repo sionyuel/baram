@@ -117,6 +117,9 @@ final class HangulComposer: NSObject, Composer {
   private var _composedString: String
   private(set) var isBufferingWord = false
   private var bufferedKeys: [(String?, KeyCode, NSEvent.ModifierFlags)] = []
+  /// Physical-key positions where the previous syllable had already been completed.
+  /// Keep these when replay reaches a boundary so Backspace cannot reopen that syllable.
+  private var bufferedSyllableBoundaries: [Int] = []
 
   let inputContext: HGInputContext
   private(set) var keyboardIdentifier: String
@@ -206,6 +209,7 @@ final class HangulComposer: NSObject, Composer {
   func cancelComposition() {
     isBufferingWord = false
     bufferedKeys.removeAll()
+    bufferedSyllableBoundaries.removeAll()
     let flushedString: String! = representableString(ucsString: inputContext.flushUCSString())
     _commitString.append(_composedString)
     _commitString.append(flushedString)
@@ -215,6 +219,7 @@ final class HangulComposer: NSObject, Composer {
   func clearCompositionContext() {
     isBufferingWord = false
     bufferedKeys.removeAll()
+    bufferedSyllableBoundaries.removeAll()
     inputContext.reset()
     _commitString = ""
     _composedString = ""
@@ -223,26 +228,51 @@ final class HangulComposer: NSObject, Composer {
   func beginBufferedWord() {
     isBufferingWord = true
     bufferedKeys.removeAll()
+    bufferedSyllableBoundaries.removeAll()
   }
 
   func appendBufferedKey(
     text: String?, key: KeyCode, modifiers: NSEvent.ModifierFlags,
     client: IMKTextInput & IMKUnicodeTextInput
   ) -> InputResult {
+    let previousKeyCount = bufferedKeys.count
+    let previousCommit = _commitString
     bufferedKeys.append((text, key, modifiers))
-    return input(text: text, key: key, modifiers: modifiers, client: client)
+    let result = input(text: text, key: key, modifiers: modifiers, client: client)
+    if _commitString != previousCommit, previousKeyCount > 0 {
+      bufferedSyllableBoundaries.append(previousKeyCount)
+    }
+    return result
   }
 
-  func deleteBufferedKey(client: IMKTextInput & IMKUnicodeTextInput) {
-    guard !bufferedKeys.isEmpty else { return }
-    bufferedKeys.removeLast()
+  @discardableResult
+  func deleteBufferedKey(client: IMKTextInput & IMKUnicodeTextInput) -> Int {
+    guard !bufferedKeys.isEmpty else { return 0 }
+    let previousKeyCount = bufferedKeys.count
+    let remainingCount: Int
+    if bufferedSyllableBoundaries.contains(previousKeyCount) {
+      remainingCount = bufferedSyllableBoundaries.last(where: { $0 < previousKeyCount }) ?? 0
+    } else {
+      remainingCount = previousKeyCount - 1
+    }
+    bufferedKeys.removeLast(previousKeyCount - remainingCount)
     let remaining = bufferedKeys
+    let preservedBoundaries = bufferedSyllableBoundaries.filter { $0 <= remainingCount }
     clearCompositionContext()
-    guard !remaining.isEmpty else { return }
+    guard !remaining.isEmpty else { return previousKeyCount }
     beginBufferedWord()
     for (text, key, modifiers) in remaining {
+      if preservedBoundaries.contains(bufferedKeys.count) {
+        _commitString += representableString(ucsString: inputContext.flushUCSString())
+      }
       _ = appendBufferedKey(text: text, key: key, modifiers: modifiers, client: client)
     }
+    bufferedSyllableBoundaries = Array(Set(bufferedSyllableBoundaries + preservedBoundaries))
+      .sorted()
+    if bufferedSyllableBoundaries.contains(remainingCount) {
+      _commitString += representableString(ucsString: inputContext.flushUCSString())
+    }
+    return previousKeyCount - remainingCount
   }
 
   func finishBufferedWord(replacingWith replacement: String? = nil) {
@@ -257,6 +287,7 @@ final class HangulComposer: NSObject, Composer {
     _commitString = ""
     isBufferingWord = false
     bufferedKeys.removeAll()
+    bufferedSyllableBoundaries.removeAll()
   }
 
   func composerSelected() {
