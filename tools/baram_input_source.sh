@@ -9,7 +9,7 @@ MODE="${1:---help}"
 
 case "$MODE" in
     --help)
-        echo "Usage: $0 list|current|enable layout|select layout|restore"
+        echo "Usage: $0 list|current|enable layout|activate layout|select layout|restore"
         echo "Example: $0 select han3final"
         echo "select saves the current source; restore selects it again."
         exit 0
@@ -17,7 +17,7 @@ case "$MODE" in
     list|current|restore)
         if [[ $# -ne 1 ]]; then echo "Unexpected argument." >&2; exit 2; fi
         ;;
-    enable|select)
+    enable|activate|select)
         if [[ $# -ne 2 ]]; then echo "Specify a Baram layout suffix." >&2; exit 2; fi
         ;;
     *) echo "Unknown command: $MODE" >&2; exit 2 ;;

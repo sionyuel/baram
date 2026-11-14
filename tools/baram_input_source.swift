@@ -71,7 +71,7 @@ private func registerBaram() throws {
 
 private func run(_ arguments: [String]) throws {
   guard let command = arguments.first else {
-    throw ToolError.message("Expected list, current, enable, select, or restore.")
+    throw ToolError.message("Expected list, current, enable, activate, select, or restore.")
   }
   if command == "current" {
     let current = TISCopyCurrentKeyboardInputSource().takeRetainedValue()
@@ -104,6 +104,13 @@ private func run(_ arguments: [String]) throws {
     guard arguments.count == 2 else { throw ToolError.message("Expected enable layout-suffix.") }
     _ = try enableBaramSource(baramSource(arguments[1]))
     print("Enabled \(arguments[1])")
+  case "activate":
+    guard arguments.count == 2 else {
+      throw ToolError.message("Expected activate layout-suffix.")
+    }
+    let target = try enableBaramSource(baramSource(arguments[1]))
+    try check(TISSelectInputSource(target), "Activate Baram source")
+    print("Activated \(stringProperty(target, kTISPropertyInputSourceID) ?? arguments[1])")
   case "select":
     guard arguments.count == 3 else {
       throw ToolError.message("Expected select layout-suffix state-file.")

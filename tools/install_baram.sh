@@ -14,6 +14,7 @@ MODE="${1:---build-only}"
 BARAM_ARCHS="${GUREUM_BARAM_ARCHS:-$(uname -m)}"
 BARAM_TAG="$(git -C "$REPO_DIR" describe --tags --always)"
 BARAM_VERSION="${BARAM_TAG#GureumKIM-}-Debug"
+PREVIOUS_BARAM_LAYOUT=''
 
 case "$BARAM_ARCHS" in
     arm64|x86_64|'arm64 x86_64') ;;
@@ -98,6 +99,13 @@ case "$MODE" in
     *) usage >&2; exit 2 ;;
 esac
 
+if [[ "$MODE" == --install && -d "$INSTALLED_APP" ]]; then
+    previous_source=$("${SCRIPT_DIR}/baram_input_source.sh" current 2>/dev/null || true)
+    if [[ "$previous_source" == "${BARAM_BUNDLE_ID}."* ]]; then
+        PREVIOUS_BARAM_LAYOUT="${previous_source#"${BARAM_BUNDLE_ID}".}"
+    fi
+fi
+
 cd "$REPO_DIR"
 xcodebuild -project Gureum.xcodeproj -scheme OSX -configuration Debug \
     -sdk macosx -destination 'platform=macOS' -derivedDataPath "$BUILD_DIR" \
@@ -132,6 +140,14 @@ if [[ "$MODE" == --install ]]; then
     /usr/bin/codesign --verify --deep --strict "$INSTALLED_APP"
     /System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister \
         -f "$INSTALLED_APP"
+    if [[ -n "$PREVIOUS_BARAM_LAYOUT" ]]; then
+        /usr/bin/killall TextInputMenuAgent 2>/dev/null || true
+        /usr/bin/killall SystemUIServer 2>/dev/null || true
+        /bin/sleep 2
+        /usr/bin/open "$INSTALLED_APP"
+        /bin/sleep 1
+        "${SCRIPT_DIR}/baram_input_source.sh" activate "$PREVIOUS_BARAM_LAYOUT"
+    fi
     if ! "${SCRIPT_DIR}/baram_input_source.sh" list >/dev/null; then
         echo "Automatic input-source registration is pending; log out and back in if needed." >&2
     fi
