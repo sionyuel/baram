@@ -1265,9 +1265,9 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
   }
 
   func testAutomaticLayoutChangeHUDUsesTheSionyuelToastTimingContract() {
-    XCTAssertEqual(AutomaticLayoutChangeHUD.displayDuration(for: "짧은 알림"), 2.6)
+    XCTAssertEqual(AutomaticLayoutChangeHUD.displayDuration(for: "짧은 알림"), 1.8)
     XCTAssertEqual(
-      AutomaticLayoutChangeHUD.displayDuration(for: String(repeating: "a", count: 21)), 2.7,
+      AutomaticLayoutChangeHUD.displayDuration(for: String(repeating: "a", count: 21)), 1.9,
       accuracy: 0.001)
     XCTAssertEqual(
       AutomaticLayoutChangeHUD.displayDuration(for: String(repeating: "a", count: 100)), 6)

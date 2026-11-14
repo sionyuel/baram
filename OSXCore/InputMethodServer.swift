@@ -68,7 +68,7 @@ final class AutomaticLayoutChangeHUD {
   }
 
   static func displayDuration(for message: String) -> TimeInterval {
-    min(6, 2.6 + Double(max(0, message.count - 20)) * 0.1)
+    min(6, 1.8 + Double(max(0, message.count - 20)) * 0.1)
   }
 
   static func springProgress(at time: TimeInterval) -> CGFloat {
