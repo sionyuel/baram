@@ -1212,6 +1212,27 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
     }
   }
 
+  func testDomainLikeBrandNamesConvertWithoutDictionaryEntries() {
+    XCTAssertTrue(
+      RomanLayoutAutocorrector.isKnownEnglishExpression("haezoom.com") { _ in false })
+    for invalid in ["haezoom", ".com", "haezoom.", "-haezoom.com", "haezoom-.com"] {
+      XCTAssertFalse(RomanLayoutAutocorrector.isDomainExpression(invalid), invalid)
+    }
+
+    let reverse = app()
+    reverse.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    reverse.inputKeys("haezoom.com")
+    reverse.inputText(" ", key: .space)
+    XCTAssertEqual(reverse.client.string, "haezoom.com ")
+    XCTAssertTrue(reverse.controller.receiver.composer.delegate is RomanComposer)
+
+    let forward = app()
+    forward.inputKeys("haezoom.com")
+    forward.inputText(" ", key: .space)
+    XCTAssertEqual(forward.client.string, "haezoom.com ")
+    XCTAssertTrue(forward.controller.receiver.composer.delegate is RomanComposer)
+  }
+
   func testReverseCorrectionWorksWithoutDocumentReadsOrAbsoluteMarkedSelection() {
     let app = app(client: UnreadableRomanInputClient())
     app.client.string = "🙂 앞 문장 "

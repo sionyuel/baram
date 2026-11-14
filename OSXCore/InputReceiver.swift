@@ -16,6 +16,10 @@ let debugInputReceiver = false
 /// Converts an input-method-owned physical key sequence without inspecting document text.
 enum RomanLayoutAutocorrector {
   private static let sentencePunctuation = CharacterSet(charactersIn: ".,!?;:'\"()~…“”‘’")
+  private static let commonTopLevelDomains: Set<String> = [
+    "ai", "app", "biz", "cloud", "co", "com", "dev", "info", "io", "kr", "me", "net",
+    "org", "tech", "xyz",
+  ]
 
   static func englishWordCandidates(_ output: String) -> [String] {
     output.components(separatedBy: sentencePunctuation).filter { !$0.isEmpty }
@@ -24,6 +28,7 @@ enum RomanLayoutAutocorrector {
   static func isKnownEnglishExpression(
     _ output: String, isKnownWord: (String) -> Bool
   ) -> Bool {
+    if isDomainExpression(output) { return true }
     let candidates = englishWordCandidates(output)
     guard !candidates.isEmpty else { return false }
     return candidates.allSatisfy { candidate in
@@ -33,6 +38,21 @@ enum RomanLayoutAutocorrector {
       let first = String(candidate[..<midpoint])
       let second = String(candidate[midpoint...])
       return first == second && isKnownWord(first)
+    }
+  }
+
+  static func isDomainExpression(_ output: String) -> Bool {
+    let labels = output.lowercased().split(separator: ".", omittingEmptySubsequences: false)
+    guard labels.count >= 2, let topLevelDomain = labels.last,
+      commonTopLevelDomains.contains(String(topLevelDomain))
+    else { return false }
+    return labels.allSatisfy { label in
+      guard (1...63).contains(label.count), label.first != "-", label.last != "-" else {
+        return false
+      }
+      return label.unicodeScalars.allSatisfy {
+        (48...57).contains($0.value) || (97...122).contains($0.value) || $0.value == 45
+      }
     }
   }
 
@@ -167,11 +187,13 @@ public class InputReceiver: InputTextDelegate {
       let hasJamo = original.unicodeScalars.contains {
         (0x1100...0x11FF).contains($0.value) || (0x3130...0x318F).contains($0.value)
       }
+      let isDomain = RomanLayoutAutocorrector.isDomainExpression(bufferedHangulRomanOutput)
       let eligible =
-        !candidates.isEmpty
-        && candidates.allSatisfy {
-          $0.count >= 4 || ($0.count == 3 && hasJamo)
-        }
+        isDomain
+        || (!candidates.isEmpty
+          && candidates.allSatisfy {
+            $0.count >= 4 || ($0.count == 3 && hasJamo)
+          })
       let converted =
         eligible
           && RomanLayoutAutocorrector.isKnownEnglishExpression(
