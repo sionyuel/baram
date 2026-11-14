@@ -123,8 +123,7 @@ public class InputController: IMKInputController {
     {
       receiver.automaticLayoutChangeCommitted = { [weak receiver] direction in
         guard let client = receiver?.inputClient else { return }
-        let message = direction == .hangul ? "한글로 자동 전환됨" : "영문으로 자동 전환됨"
-        AutomaticLayoutChangeHUD.shared.show(message, client: client)
+        AutomaticLayoutChangeHUD.shared.show(direction, client: client)
       }
     }
   }

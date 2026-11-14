@@ -25,10 +25,14 @@ final class AutomaticLayoutChangeHUD {
   private static let springDuration: TimeInterval = 0.732
   private static let pillSize = NSSize(width: 220, height: 36)
   private static let canvasInset = NSSize(width: 8, height: 12)
+  private static let hangulColor = NSColor(
+    srgbRed: 0.0784, green: 0.4039, blue: 0.3725, alpha: 1)
+  private static let romanColor = NSColor(
+    srgbRed: 0.4824, green: 0.2902, blue: 0.1412, alpha: 1)
 
   private let panel: NSPanel
   private let toastContainer: NSView
-  private let effectView: NSVisualEffectView
+  private let pillView: NSView
   private let label: NSTextField
   private var hideWorkItem: DispatchWorkItem?
   private var lastAnnouncement: (message: String, time: TimeInterval)?
@@ -69,26 +73,23 @@ final class AutomaticLayoutChangeHUD {
       transform: nil)
     root.addSubview(toastContainer)
 
-    effectView = NSVisualEffectView(frame: toastContainer.bounds)
-    effectView.material = .hudWindow
-    effectView.blendingMode = .behindWindow
-    effectView.state = .active
-    effectView.autoresizingMask = [.width, .height]
-    effectView.wantsLayer = true
-    effectView.layer?.cornerRadius = 18
-    effectView.layer?.masksToBounds = true
+    pillView = NSView(frame: toastContainer.bounds)
+    pillView.autoresizingMask = [.width, .height]
+    pillView.wantsLayer = true
+    pillView.layer?.cornerRadius = 18
+    pillView.layer?.masksToBounds = true
 
     label = NSTextField(labelWithString: "")
     label.alignment = .center
     label.font = .systemFont(ofSize: 13, weight: .semibold)
-    label.textColor = .labelColor
+    label.textColor = .white
     label.translatesAutoresizingMaskIntoConstraints = false
-    effectView.addSubview(label)
-    toastContainer.addSubview(effectView)
+    pillView.addSubview(label)
+    toastContainer.addSubview(pillView)
     NSLayoutConstraint.activate([
-      label.leadingAnchor.constraint(equalTo: effectView.leadingAnchor, constant: 16),
-      label.trailingAnchor.constraint(equalTo: effectView.trailingAnchor, constant: -16),
-      label.centerYAnchor.constraint(equalTo: effectView.centerYAnchor),
+      label.leadingAnchor.constraint(equalTo: pillView.leadingAnchor, constant: 16),
+      label.trailingAnchor.constraint(equalTo: pillView.trailingAnchor, constant: -16),
+      label.centerYAnchor.constraint(equalTo: pillView.centerYAnchor),
     ])
   }
 
@@ -111,16 +112,31 @@ final class AutomaticLayoutChangeHUD {
     return CGFloat(response)
   }
 
-  func show(_ message: String, client: IMKTextInput & IMKUnicodeTextInput) {
+  func show(
+    _ direction: AutomaticLayoutChangeDirection,
+    client: IMKTextInput & IMKUnicodeTextInput
+  ) {
     DispatchQueue.main.async { [weak self, weak client = client as AnyObject] in
       guard let self,
         let client = client as? (IMKTextInput & IMKUnicodeTextInput)
       else { return }
-      self.present(message, client: client)
+      self.present(direction, client: client)
     }
   }
 
-  private func present(_ message: String, client: IMKTextInput & IMKUnicodeTextInput) {
+  private func present(
+    _ direction: AutomaticLayoutChangeDirection,
+    client: IMKTextInput & IMKUnicodeTextInput
+  ) {
+    let message: String
+    switch direction {
+    case .hangul:
+      message = "한글로 자동 전환됨"
+      pillView.layer?.backgroundColor = Self.hangulColor.cgColor
+    case .roman:
+      message = "영문으로 자동 전환됨"
+      pillView.layer?.backgroundColor = Self.romanColor.cgColor
+    }
     hideWorkItem?.cancel()
     presentationGeneration += 1
     let generation = presentationGeneration
@@ -192,7 +208,7 @@ final class AutomaticLayoutChangeHUD {
   }
 
   private func pulse() {
-    guard let layer = effectView.layer else { return }
+    guard let layer = pillView.layer else { return }
     layer.removeAnimation(forKey: "automaticLayoutChangePulse")
     let animation = CAKeyframeAnimation(keyPath: "transform.scale")
     animation.values = [1, 1.04, 1]
