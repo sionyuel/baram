@@ -23,6 +23,173 @@ extension NSUserNotificationCenter {
   }
 }
 
+/// Migration contract: compare the existing Objective-C surface with independent C contexts.
+/// A future Swift wrapper can run through the same operations without changing these expectations.
+class LibhangulWrapperParityTests: XCTestCase {
+  private let keyboards = ["2-full", "3f", "39", "3fs", "3y", "3gs", "ro", "ahn"]
+
+  private func ucsString(_ pointer: UnsafePointer<UInt32>) -> String {
+    var result = String.UnicodeScalarView()
+    for index in 0..<64 {
+      let value = pointer[index]
+      if value == 0 { return String(result) }
+      guard let scalar = UnicodeScalar(value) else {
+        XCTFail("Invalid Unicode scalar in libhangul output: \(value)")
+        return ""
+      }
+      result.append(scalar)
+    }
+    XCTFail("libhangul output exceeded its 64-scalar context buffer")
+    return ""
+  }
+
+  private func assertState(
+    _ wrapper: HGInputContext, _ direct: OpaquePointer, _ description: String,
+    file: StaticString = #filePath, line: UInt = #line
+  ) {
+    let preedit = ucsString(hangul_ic_get_preedit_string(direct))
+    let commit = ucsString(hangul_ic_get_commit_string(direct))
+    XCTAssertEqual(wrapper.preeditString, preedit, description, file: file, line: line)
+    XCTAssertEqual(wrapper.commitString, commit, description, file: file, line: line)
+    XCTAssertEqual(
+      ucsString(wrapper.preeditUCSString), preedit, description, file: file, line: line)
+    XCTAssertEqual(ucsString(wrapper.commitUCSString), commit, description, file: file, line: line)
+    XCTAssertEqual(wrapper.isEmpty, hangul_ic_is_empty(direct), description, file: file, line: line)
+    XCTAssertEqual(
+      wrapper.hasChoseong, hangul_ic_has_choseong(direct), description, file: file, line: line)
+    XCTAssertEqual(
+      wrapper.hasJungseong, hangul_ic_has_jungseong(direct), description, file: file, line: line)
+    XCTAssertEqual(
+      wrapper.hasJongseong, hangul_ic_has_jongseong(direct), description, file: file, line: line)
+    XCTAssertEqual(
+      wrapper.isTransliteration, hangul_ic_is_transliteration(direct), description, file: file,
+      line: line)
+  }
+
+  func testInputOperationsMatchDirectCForEveryMigrationKeyboard() throws {
+    for keyboard in keyboards {
+      for autoReorder in [false, true] {
+        let wrapper = try XCTUnwrap(HGInputContext(keyboardIdentifier: keyboard), keyboard)
+        let direct = try XCTUnwrap(hangul_ic_new(keyboard), keyboard)
+        defer { hangul_ic_delete(direct) }
+        wrapper.setOption(HANGUL_IC_OPTION_AUTO_REORDER, value: autoReorder)
+        hangul_ic_set_option(direct, Int32(HANGUL_IC_OPTION_AUTO_REORDER), autoReorder)
+        assertState(wrapper, direct, "\(keyboard) initial")
+
+        // Includes composition, reordered roles, compound vowels, punctuation, and a boundary.
+        for stream in ["gksrmf", "kfvsj", "hangeul", "Rk! "] {
+          wrapper.reset()
+          hangul_ic_reset(direct)
+          for scalar in stream.unicodeScalars {
+            let description = "\(keyboard), reorder=\(autoReorder), \(stream), key=\(scalar)"
+            XCTAssertEqual(
+              wrapper.process(scalar.value), hangul_ic_process(direct, Int32(scalar.value)),
+              description)
+            assertState(wrapper, direct, description)
+          }
+          for _ in 0..<(stream.count + 1) {
+            XCTAssertEqual(wrapper.backspace(), hangul_ic_backspace(direct), keyboard)
+            assertState(wrapper, direct, "\(keyboard) backspace")
+          }
+          for scalar in stream.unicodeScalars {
+            _ = wrapper.process(scalar.value)
+            _ = hangul_ic_process(direct, Int32(scalar.value))
+          }
+          XCTAssertEqual(wrapper.flushString(), ucsString(hangul_ic_flush(direct)), keyboard)
+          assertState(wrapper, direct, "\(keyboard) flush")
+          XCTAssertTrue(wrapper.isEmpty, keyboard)
+          wrapper.reset()
+          hangul_ic_reset(direct)
+          assertState(wrapper, direct, "\(keyboard) reset")
+        }
+      }
+    }
+  }
+
+  func testKeyboardSelectionAndBorrowedBuffersHaveStableValueSnapshots() throws {
+    let wrapper = try XCTUnwrap(HGInputContext(keyboardIdentifier: "2-full"))
+    let direct = try XCTUnwrap(hangul_ic_new("2-full"))
+    defer { hangul_ic_delete(direct) }
+    for keyboard in keyboards {
+      wrapper.reset()
+      hangul_ic_reset(direct)
+      wrapper.setKeyboardWithIdentifier(keyboard)
+      hangul_ic_select_keyboard(direct, keyboard)
+      for scalar in "kf".unicodeScalars {
+        XCTAssertEqual(
+          wrapper.process(scalar.value), hangul_ic_process(direct, Int32(scalar.value)))
+      }
+      assertState(wrapper, direct, "selected \(keyboard)")
+    }
+    wrapper.reset()
+    wrapper.setKeyboardWithIdentifier("3f")
+    for scalar in "kf".unicodeScalars { _ = wrapper.process(scalar.value) }
+    let copiedPreedit = ucsString(wrapper.preeditUCSString)
+    XCTAssertEqual(copiedPreedit, "가")
+    _ = wrapper.process(UnicodeScalar("s").value)
+    XCTAssertEqual(copiedPreedit, "가")
+    XCTAssertEqual(wrapper.preeditString, "간")
+    XCTAssertEqual(ucsString(wrapper.flushUCSString()), "간")
+    XCTAssertTrue(wrapper.isEmpty)
+  }
+
+  func testBundledKeyboardAndHanjaResourcesRemainAvailable() throws {
+    let bundle = Bundle(for: HGKeyboard.self)
+    for keyboard in keyboards {
+      let url = try XCTUnwrap(
+        bundle.url(
+          forResource: "hangul-keyboard-\(keyboard)", withExtension: "xml",
+          subdirectory: "keyboards"))
+      XCTAssertFalse(try Data(contentsOf: url).isEmpty, keyboard)
+    }
+    for resource in ["hanjac", "hanjaw", "mssymbol", "emoji"] {
+      let path = try XCTUnwrap(
+        bundle.path(forResource: resource, ofType: "txt", inDirectory: "hanja"))
+      XCTAssertNotNil(HGHanjaTable(contentOfFile: path), resource)
+    }
+  }
+
+  func testHanjaSearchResultsMatchDirectCAndCanBeCopiedBeforeListRelease() throws {
+    let bundle = Bundle(for: HGKeyboard.self)
+    for (resource, query) in [
+      ("hanjac", "한"), ("hanjaw", "한국"), ("mssymbol", "ㄱ"), ("emoji", "hushed face"),
+    ] {
+      let path = try XCTUnwrap(
+        bundle.path(forResource: resource, ofType: "txt", inDirectory: "hanja"))
+      let wrapper = try XCTUnwrap(HGHanjaTable(contentOfFile: path))
+      let direct = try XCTUnwrap(hanja_table_load(path))
+      defer { hanja_table_delete(direct) }
+      let methods:
+        [(
+          String, (String) -> HGHanjaList?,
+          (OpaquePointer?, UnsafePointer<CChar>?) -> OpaquePointer?
+        )] = [
+          ("exact", wrapper.hanjasByExact(matching:), hanja_table_match_exact),
+          ("prefix", wrapper.hanjasByPrefix(matching:), hanja_table_match_prefix),
+          ("suffix", wrapper.hanjasBySuffix(matching:), hanja_table_match_suffix),
+          ("search", wrapper.hanjas(byPrefixSearching:), hanja_table_search_prefix),
+        ]
+      for (name, wrappedSearch, directSearch) in methods {
+        let list = try XCTUnwrap(wrappedSearch(query), "\(resource) \(name)")
+        let cList = try XCTUnwrap(query.withCString { directSearch(direct, $0) })
+        let expected = (0..<hanja_list_get_size(cList)).map { index in
+          [
+            String(cString: hanja_list_get_nth_key(cList, UInt32(index))),
+            String(cString: hanja_list_get_nth_value(cList, UInt32(index))),
+            String(cString: hanja_list_get_nth_comment(cList, UInt32(index))),
+          ]
+        }
+        let actual = list.array.map { [$0.key, $0.value, $0.comment] }
+        XCTAssertGreaterThan(list.count, 0, resource)
+        XCTAssertEqual(list.key, String(cString: hanja_list_get_key(cList)))
+        hanja_list_delete(cList)
+        XCTAssertEqual(actual, expected, "\(resource) \(name)")
+      }
+      XCTAssertNil(wrapper.hanjasByExact(matching: "__baram_missing_entry__"))
+    }
+  }
+}
+
 class GureumTests: XCTestCase {
   static let domainName = "org.youknowone.Gureum.test"
   lazy var moderate: VirtualApp = ModerateApp()
