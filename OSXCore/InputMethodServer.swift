@@ -23,35 +23,60 @@ private final class AutomaticLayoutChangeHUDPanel: NSPanel {
 final class AutomaticLayoutChangeHUD {
   static let shared = AutomaticLayoutChangeHUD()
   private static let springDuration: TimeInterval = 0.732
+  private static let pillSize = NSSize(width: 220, height: 36)
+  private static let canvasInset = NSSize(width: 8, height: 12)
 
   private let panel: NSPanel
+  private let toastContainer: NSView
   private let effectView: NSVisualEffectView
   private let label: NSTextField
   private var hideWorkItem: DispatchWorkItem?
-  private var springTimer: Timer?
   private var lastAnnouncement: (message: String, time: TimeInterval)?
   private var presentationGeneration = 0
+  private var isExiting = false
 
   private init() {
+    let panelSize = NSSize(
+      width: Self.pillSize.width + Self.canvasInset.width * 2,
+      height: Self.pillSize.height + Self.canvasInset.height * 2)
     panel = AutomaticLayoutChangeHUDPanel(
-      contentRect: NSRect(x: 0, y: 0, width: 220, height: 36),
+      contentRect: NSRect(origin: .zero, size: panelSize),
       styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
     panel.level = .floating
     panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
     panel.animationBehavior = .none
     panel.backgroundColor = .clear
     panel.isOpaque = false
-    panel.hasShadow = true
+    panel.hasShadow = false
     panel.ignoresMouseEvents = true
 
-    effectView = NSVisualEffectView(frame: panel.contentView?.bounds ?? .zero)
+    let root = NSView(frame: NSRect(origin: .zero, size: panelSize))
+    root.wantsLayer = true
+    root.layer?.backgroundColor = NSColor.clear.cgColor
+    panel.contentView = root
+
+    toastContainer = NSView(
+      frame: NSRect(
+        x: Self.canvasInset.width, y: Self.canvasInset.height,
+        width: Self.pillSize.width, height: Self.pillSize.height))
+    toastContainer.wantsLayer = true
+    toastContainer.layer?.shadowColor = NSColor.black.cgColor
+    toastContainer.layer?.shadowOpacity = 0.18
+    toastContainer.layer?.shadowRadius = 14
+    toastContainer.layer?.shadowOffset = NSSize(width: 0, height: -8)
+    toastContainer.layer?.shadowPath = CGPath(
+      roundedRect: toastContainer.bounds, cornerWidth: 18, cornerHeight: 18,
+      transform: nil)
+    root.addSubview(toastContainer)
+
+    effectView = NSVisualEffectView(frame: toastContainer.bounds)
     effectView.material = .hudWindow
     effectView.blendingMode = .behindWindow
     effectView.state = .active
+    effectView.autoresizingMask = [.width, .height]
     effectView.wantsLayer = true
     effectView.layer?.cornerRadius = 18
     effectView.layer?.masksToBounds = true
-    effectView.translatesAutoresizingMaskIntoConstraints = false
 
     label = NSTextField(labelWithString: "")
     label.alignment = .center
@@ -59,7 +84,7 @@ final class AutomaticLayoutChangeHUD {
     label.textColor = .labelColor
     label.translatesAutoresizingMaskIntoConstraints = false
     effectView.addSubview(label)
-    panel.contentView = effectView
+    toastContainer.addSubview(effectView)
     NSLayoutConstraint.activate([
       label.leadingAnchor.constraint(equalTo: effectView.leadingAnchor, constant: 16),
       label.trailingAnchor.constraint(equalTo: effectView.trailingAnchor, constant: -16),
@@ -97,40 +122,25 @@ final class AutomaticLayoutChangeHUD {
 
   private func present(_ message: String, client: IMKTextInput & IMKUnicodeTextInput) {
     hideWorkItem?.cancel()
-    springTimer?.invalidate()
-    springTimer = nil
     presentationGeneration += 1
     let generation = presentationGeneration
-    let repeatsVisibleMessage = panel.isVisible && label.stringValue == message
+    let wasExiting = isExiting
+    if wasExiting {
+      resetToastLayer()
+      isExiting = false
+    }
+    let repeatsVisibleMessage = !wasExiting && panel.isVisible && label.stringValue == message
     label.stringValue = message
     let finalOrigin = origin(on: targetScreen(for: client))
     let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    panel.setFrameOrigin(finalOrigin)
 
     if repeatsVisibleMessage {
-      panel.setFrameOrigin(finalOrigin)
-      panel.alphaValue = 1
       if !reduceMotion { pulse() }
-    } else if reduceMotion {
-      panel.setFrameOrigin(finalOrigin)
-      panel.alphaValue = 0
-      panel.orderFrontRegardless()
-      NSAnimationContext.runAnimationGroup { context in
-        context.duration = 0.15
-        context.timingFunction = CAMediaTimingFunction(
-          controlPoints: 0.25, 0.1, 0.25, 1)
-        panel.animator().alphaValue = 1
-      }
     } else {
-      panel.setFrameOrigin(NSPoint(x: finalOrigin.x, y: finalOrigin.y - 12))
-      panel.alphaValue = 0
+      resetToastLayer()
       panel.orderFrontRegardless()
-      NSAnimationContext.runAnimationGroup { context in
-        context.duration = 0.2
-        context.timingFunction = CAMediaTimingFunction(
-          controlPoints: 0.333, 0, 0.667, 1)
-        panel.animator().alphaValue = 1
-      }
-      startSpring(to: finalOrigin, generation: generation)
+      animateEntrance(reduceMotion: reduceMotion)
     }
 
     let now = ProcessInfo.processInfo.systemUptime
@@ -150,26 +160,35 @@ final class AutomaticLayoutChangeHUD {
       deadline: .now() + Self.displayDuration(for: message), execute: workItem)
   }
 
-  private func startSpring(to finalOrigin: NSPoint, generation: Int) {
-    let startedAt = ProcessInfo.processInfo.systemUptime
-    let timer = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] timer in
-      guard let self, generation == self.presentationGeneration else {
-        timer.invalidate()
-        return
-      }
-      let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
-      if elapsed >= Self.springDuration {
-        timer.invalidate()
-        self.springTimer = nil
-        self.panel.setFrameOrigin(finalOrigin)
-        return
-      }
-      let progress = Self.springProgress(at: elapsed)
-      self.panel.setFrameOrigin(
-        NSPoint(x: finalOrigin.x, y: finalOrigin.y - 12 * (1 - progress)))
-    }
-    springTimer = timer
-    RunLoop.main.add(timer, forMode: .common)
+  private func animateEntrance(reduceMotion: Bool) {
+    guard let layer = toastContainer.layer else { return }
+    let fade = CABasicAnimation(keyPath: "opacity")
+    fade.fromValue = 0
+    fade.toValue = 1
+    fade.duration = reduceMotion ? 0.15 : 0.2
+    fade.timingFunction =
+      reduceMotion
+      ? CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
+      : CAMediaTimingFunction(controlPoints: 0.333, 0, 0.667, 1)
+    layer.add(fade, forKey: "automaticLayoutChangeFadeIn")
+
+    guard !reduceMotion else { return }
+    let spring = CASpringAnimation(keyPath: "transform.translation.y")
+    spring.mass = 1
+    spring.stiffness = 449
+    spring.damping = 31.4
+    spring.initialVelocity = 0
+    spring.fromValue = -12
+    spring.toValue = 0
+    spring.duration = Self.springDuration
+    layer.add(spring, forKey: "automaticLayoutChangeSpringIn")
+  }
+
+  private func resetToastLayer() {
+    guard let layer = toastContainer.layer else { return }
+    layer.removeAllAnimations()
+    layer.opacity = 1
+    layer.transform = CATransform3DIdentity
   }
 
   private func pulse() {
@@ -189,26 +208,46 @@ final class AutomaticLayoutChangeHUD {
   private func hide(generation: Int) {
     guard generation == presentationGeneration else { return }
     hideWorkItem = nil
-    springTimer?.invalidate()
-    springTimer = nil
+    isExiting = true
     let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-    let origin = panel.frame.origin
-    NSAnimationContext.runAnimationGroup(
-      { context in
-        context.duration = reduceMotion ? 0.15 : 0.18
-        context.timingFunction =
-          reduceMotion
-          ? CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
-          : CAMediaTimingFunction(controlPoints: 0.4, 0, 1, 1)
-        panel.animator().alphaValue = 0
-        if !reduceMotion {
-          panel.animator().setFrameOrigin(NSPoint(x: origin.x, y: origin.y - 8))
-        }
-      },
-      completionHandler: { [weak self] in
-        guard let self, generation == self.presentationGeneration else { return }
-        self.panel.orderOut(nil)
-      })
+    guard let layer = toastContainer.layer else {
+      panel.orderOut(nil)
+      return
+    }
+    layer.removeAllAnimations()
+    let duration = reduceMotion ? 0.15 : 0.18
+    let easing =
+      reduceMotion
+      ? CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
+      : CAMediaTimingFunction(controlPoints: 0.4, 0, 1, 1)
+    let fade = CABasicAnimation(keyPath: "opacity")
+    fade.fromValue = 1
+    fade.toValue = 0
+    fade.duration = duration
+    fade.timingFunction = easing
+
+    var animations: [CAAnimation] = [fade]
+    if !reduceMotion {
+      let drop = CABasicAnimation(keyPath: "transform.translation.y")
+      drop.fromValue = 0
+      drop.toValue = -8
+      drop.duration = duration
+      drop.timingFunction = easing
+      animations.append(drop)
+    }
+    let group = CAAnimationGroup()
+    group.animations = animations
+    group.duration = duration
+
+    CATransaction.begin()
+    CATransaction.setCompletionBlock { [weak self] in
+      guard let self, generation == self.presentationGeneration else { return }
+      self.panel.orderOut(nil)
+      self.isExiting = false
+      self.resetToastLayer()
+    }
+    layer.add(group, forKey: "automaticLayoutChangeExit")
+    CATransaction.commit()
   }
 
   private func targetScreen(for client: IMKTextInput & IMKUnicodeTextInput) -> NSScreen? {
@@ -225,7 +264,7 @@ final class AutomaticLayoutChangeHUD {
     let visibleFrame = screen.visibleFrame
     return NSPoint(
       x: visibleFrame.midX - panel.frame.width / 2,
-      y: visibleFrame.minY + 56)
+      y: visibleFrame.minY + 56 - Self.canvasInset.height)
   }
 }
 
