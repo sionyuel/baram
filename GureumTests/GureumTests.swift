@@ -1297,17 +1297,26 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
     XCTAssertEqual(
       InputReceiver.bufferedRomanReplacementRange(
         markedRange: NSRange(location: 7, length: 5),
-        selectionRange: NSRange(location: 12, length: 0), composedUTF16Length: 5),
+        bufferedStartLocation: 2, selectionRange: NSRange(location: 12, length: 0),
+        composedUTF16Length: 5),
       NSRange(location: 7, length: 5))
     XCTAssertEqual(
       InputReceiver.bufferedRomanReplacementRange(
         markedRange: NSRange(location: NSNotFound, length: NSNotFound),
-        selectionRange: NSRange(location: 12, length: 0), composedUTF16Length: 5),
+        bufferedStartLocation: 7, selectionRange: NSRange(location: 0, length: 0),
+        composedUTF16Length: 5),
+      NSRange(location: 7, length: 5))
+    XCTAssertEqual(
+      InputReceiver.bufferedRomanReplacementRange(
+        markedRange: NSRange(location: NSNotFound, length: NSNotFound),
+        bufferedStartLocation: nil, selectionRange: NSRange(location: 12, length: 0),
+        composedUTF16Length: 5),
       NSRange(location: 7, length: 5))
     XCTAssertNil(
       InputReceiver.bufferedRomanReplacementRange(
         markedRange: NSRange(location: NSNotFound, length: NSNotFound),
-        selectionRange: NSRange(location: 3, length: 0), composedUTF16Length: 5))
+        bufferedStartLocation: nil, selectionRange: NSRange(location: 3, length: 0),
+        composedUTF16Length: 5))
   }
 
   func testSlashCommandsBypassTheMarkedWordBuffer() {

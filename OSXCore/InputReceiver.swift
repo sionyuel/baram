@@ -66,6 +66,7 @@ public class InputReceiver: InputTextDelegate {
   var inputting: Bool = false
   var hasSelectionRange: Bool = false
   private weak var bufferedRomanClient: AnyObject?
+  private var bufferedRomanStartLocation: Int?
   private var romanAutocorrectionSuppressed = false
   private var pendingRomanCommitReplacementRange: NSRange?
   var romanAutocorrectionAvailable: () -> Bool = { InputMethodIdentity.current.isBaram }
@@ -85,7 +86,10 @@ public class InputReceiver: InputTextDelegate {
   }
 
   func resetRomanAutocorrection() {
-    guard composer.romanComposer.hasBufferedWord else { return }
+    guard composer.romanComposer.hasBufferedWord else {
+      bufferedRomanStartLocation = nil
+      return
+    }
     romanAutocorrectionSuppressed = true
     composer.romanComposer.finishBufferedWord()
     let owner = bufferedRomanClient as? (IMKTextInput & IMKUnicodeTextInput) ?? inputClient
@@ -94,6 +98,7 @@ public class InputReceiver: InputTextDelegate {
       owner.insertText(original, replacementRange: NSRange(location: NSNotFound, length: 0))
     }
     bufferedRomanClient = nil
+    bufferedRomanStartLocation = nil
   }
 
   static func autocorrectionBundleIdentifier(
@@ -105,11 +110,15 @@ public class InputReceiver: InputTextDelegate {
   }
 
   static func bufferedRomanReplacementRange(
-    markedRange: NSRange, selectionRange: NSRange, composedUTF16Length: Int
+    markedRange: NSRange, bufferedStartLocation: Int?, selectionRange: NSRange,
+    composedUTF16Length: Int
   ) -> NSRange? {
     guard composedUTF16Length > 0 else { return nil }
     if markedRange.location != NSNotFound, markedRange.length > 0 {
       return markedRange
+    }
+    if let bufferedStartLocation, bufferedStartLocation != NSNotFound {
+      return NSRange(location: bufferedStartLocation, length: composedUTF16Length)
     }
     guard selectionRange.location != NSNotFound, selectionRange.length == 0,
       selectionRange.location >= composedUTF16Length
@@ -161,10 +170,12 @@ public class InputReceiver: InputTextDelegate {
         isKnownEnglish
         ? nil : RomanLayoutAutocorrector.convert(roman.bufferedPhysicalKeys, keyboard: keyboard)
       pendingRomanCommitReplacementRange = Self.bufferedRomanReplacementRange(
-        markedRange: client.markedRange(), selectionRange: client.selectedRange(),
+        markedRange: client.markedRange(), bufferedStartLocation: bufferedRomanStartLocation,
+        selectionRange: client.selectedRange(),
         composedUTF16Length: (roman.composedString as NSString).length)
       roman.finishBufferedWord(replacingWith: converted)
       bufferedRomanClient = nil
+      bufferedRomanStartLocation = nil
       if converted != nil {
         _ = input(event: .changeLayout(.hangul, false), client: client)
       }
@@ -172,7 +183,10 @@ public class InputReceiver: InputTextDelegate {
     }
     if key == .delete, roman.hasBufferedWord {
       roman.deleteBufferedKey()
-      if !roman.hasBufferedWord { bufferedRomanClient = nil }
+      if !roman.hasBufferedWord {
+        bufferedRomanClient = nil
+        bufferedRomanStartLocation = nil
+      }
       return .processed
     }
     guard !romanAutocorrectionSuppressed else { return nil }
@@ -202,6 +216,7 @@ public class InputReceiver: InputTextDelegate {
         return nil
       }
       bufferedRomanClient = client as AnyObject
+      bufferedRomanStartLocation = selection.location
     }
     roman.appendBufferedKey(physical, output: output)
     return .processed
