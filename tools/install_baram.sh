@@ -146,6 +146,7 @@ if [[ "$MODE" == --install ]]; then
         /bin/sleep 2
         /usr/bin/open "$INSTALLED_APP"
         /bin/sleep 1
+        "${SCRIPT_DIR}/baram_input_source.sh" activate system
         "${SCRIPT_DIR}/baram_input_source.sh" activate "$PREVIOUS_BARAM_LAYOUT"
     fi
     if ! "${SCRIPT_DIR}/baram_input_source.sh" list >/dev/null; then

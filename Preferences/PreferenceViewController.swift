@@ -85,6 +85,18 @@ final class SystemSettingsPopUpButton: NSPopUpButton {
 }
 
 final class KeyboardPreviewView: NSView {
+  private static let physicalKeys: [UInt16: String] = [
+    0: "a", 1: "s", 2: "d", 3: "f", 4: "h", 5: "g", 6: "z", 7: "x",
+    8: "c", 9: "v", 11: "b", 12: "q", 13: "w", 14: "e", 15: "r", 16: "y",
+    17: "t", 18: "1", 19: "2", 20: "3", 21: "4", 22: "6", 23: "5", 24: "=",
+    25: "9", 26: "7", 27: "-", 28: "8", 29: "0", 30: "]", 31: "o", 32: "u",
+    33: "[", 34: "i", 35: "p", 37: "l", 38: "j", 39: "'", 40: "k", 41: ";",
+    42: "\\", 43: ",", 44: "/", 45: "n", 46: "m", 47: ".", 50: "`",
+  ]
+  private static let shiftedKeys = Dictionary(
+    uniqueKeysWithValues: zip(
+      Array("`1234567890-=qwertyuiop[]\\asdfghjkl;'zxcvbnm,./").map(String.init),
+      Array("~!@#$%^&*()_+QWERTYUIOP{}|ASDFGHJKL:\"ZXCVBNM<>?").map(String.init)))
   private static let rows: [[String]] = [
     Array("`1234567890-=").map { String($0) },
     Array("qwertyuiop[]\\").map { String($0) },
@@ -95,6 +107,11 @@ final class KeyboardPreviewView: NSView {
   private(set) var labels: [String: String] = [:]
   private(set) var layoutName: String
   private(set) var isAvailable = false
+  private(set) var isShiftPressed = false
+  private(set) var pressedKeys: Set<String> = []
+  private var eventMonitor: Any?
+  private var windowObservers: [NSObjectProtocol] = []
+  private var releaseWorkItems: [String: DispatchWorkItem] = [:]
 
   init(layoutIdentifier: String, layoutName: String) {
     self.layoutName = layoutName
@@ -108,8 +125,102 @@ final class KeyboardPreviewView: NSView {
     return nil
   }
 
+  deinit {
+    stopObservingKeyboard()
+  }
+
   override var isFlipped: Bool { true }
   override var intrinsicContentSize: NSSize { NSSize(width: 432, height: 120) }
+
+  override func viewWillMove(toWindow newWindow: NSWindow?) {
+    stopObservingKeyboard()
+    super.viewWillMove(toWindow: newWindow)
+  }
+
+  override func viewDidMoveToWindow() {
+    super.viewDidMoveToWindow()
+    guard let window else { return }
+    eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp, .flagsChanged]) {
+      [weak self] event in
+      guard let self else { return event }
+      guard self.window?.isKeyWindow == true,
+        event.window == nil || event.window === self.window,
+        !self.isHiddenOrHasHiddenAncestor
+      else {
+        self.resetInteraction()
+        return event
+      }
+      return self.observeKeyboardEvent(event)
+    }
+    windowObservers = [
+      NotificationCenter.default.addObserver(
+        forName: NSWindow.didResignKeyNotification, object: window, queue: .main
+      ) { [weak self] _ in self?.resetInteraction() },
+      NotificationCenter.default.addObserver(
+        forName: NSWindow.willCloseNotification, object: window, queue: .main
+      ) { [weak self] _ in self?.stopObservingKeyboard() },
+    ]
+  }
+
+  private func stopObservingKeyboard() {
+    if let eventMonitor { NSEvent.removeMonitor(eventMonitor) }
+    eventMonitor = nil
+    windowObservers.forEach(NotificationCenter.default.removeObserver)
+    windowObservers.removeAll()
+    resetInteraction()
+  }
+
+  private func resetInteraction() {
+    for workItem in releaseWorkItems.values { workItem.cancel() }
+    releaseWorkItems.removeAll()
+    pressedKeys.removeAll()
+    isShiftPressed = false
+    updateAccessibilityValue()
+    needsDisplay = true
+  }
+
+  @discardableResult
+  func observeKeyboardEvent(_ event: NSEvent) -> NSEvent {
+    isShiftPressed = event.modifierFlags.contains(.shift)
+    if let key = Self.physicalKeys[event.keyCode] {
+      if event.type == .keyDown {
+        releaseWorkItems.removeValue(forKey: key)?.cancel()
+        pressedKeys.insert(key)
+      } else if event.type == .keyUp {
+        releaseWorkItems.removeValue(forKey: key)?.cancel()
+        let release = DispatchWorkItem { [weak self] in
+          self?.pressedKeys.remove(key)
+          self?.releaseWorkItems.removeValue(forKey: key)
+          self?.updateAccessibilityValue()
+          self?.needsDisplay = true
+        }
+        releaseWorkItems[key] = release
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.12, execute: release)
+      }
+    }
+    updateAccessibilityValue()
+    needsDisplay = true
+    return event
+  }
+
+  func visibleLabel(for key: String) -> String {
+    let mappedKey = isShiftPressed ? Self.shiftedKeys[key] ?? key : key
+    return labels[mappedKey] ?? mappedKey
+  }
+
+  private func updateAccessibilityValue() {
+    guard isAvailable else {
+      setAccessibilityValue("\(layoutName) 미리보기를 불러올 수 없음")
+      return
+    }
+    var value = "현재 한글 자판 \(layoutName)"
+    if isShiftPressed { value += ", Shift 누름" }
+    if !pressedKeys.isEmpty {
+      value +=
+        ", \(pressedKeys.sorted().map { visibleLabel(for: $0) }.joined(separator: ", ")) 키 누름"
+    }
+    setAccessibilityValue(value)
+  }
 
   func reload(layoutIdentifier: String, layoutName: String) {
     let loadedLabels = Self.loadLabels(layoutIdentifier: layoutIdentifier)
@@ -117,9 +228,7 @@ final class KeyboardPreviewView: NSView {
     isAvailable = loadedLabels != nil
     self.layoutName = layoutName
     setAccessibilityLabel("\(layoutName) 키보드 미리보기")
-    setAccessibilityValue(
-      isAvailable ? "현재 한글 자판 \(layoutName)" : "\(layoutName) 미리보기를 불러올 수 없음")
-    needsDisplay = true
+    resetInteraction()
   }
 
   override func draw(_ dirtyRect: NSRect) {
@@ -146,12 +255,13 @@ final class KeyboardPreviewView: NSView {
       let y = top + CGFloat(rowIndex) * (keySize.height + gap)
       for key in keys {
         let frame = NSRect(origin: NSPoint(x: x, y: y), size: keySize)
-        NSColor.controlColor.setFill()
+        let isPressed = pressedKeys.contains(key)
+        (isPressed ? NSColor.selectedControlColor : NSColor.controlColor).setFill()
         NSBezierPath(roundedRect: frame, xRadius: 4, yRadius: 4).fill()
-        let label = labels[key] ?? key
+        let label = visibleLabel(for: key)
         let attributes: [NSAttributedString.Key: Any] = [
           .font: NSFont.systemFont(ofSize: 12, weight: .semibold),
-          .foregroundColor: NSColor.labelColor,
+          .foregroundColor: isPressed ? NSColor.selectedControlTextColor : NSColor.labelColor,
         ]
         let size = label.size(withAttributes: attributes)
         label.draw(
@@ -556,7 +666,7 @@ final class PreferenceViewController: NSViewController, NSTextFieldDelegate {
       inputSections.append(
         section(
           "현재 한글 자판", rows: [preview],
-          explanation: helperText("현재 선택한 한글 입력 소스의 실제 자판 매핑입니다.")))
+          explanation: helperText("현재 한글 자판입니다. 키를 누르면 해당 위치가 반응하고 Shift를 누르면 윗글자를 표시합니다.")))
     #endif
     let inputPage = page(inputSections)
 

@@ -1942,6 +1942,65 @@ class PreferencesFormTests: IsolatedChordConfigurationTests {
     XCTAssertEqual(preview.accessibilityLabel(), "세벌식 최종 키보드 미리보기")
   }
 
+  private func previewEvent(
+    _ type: NSEvent.EventType, keyCode: UInt16, modifiers: NSEvent.ModifierFlags = []
+  ) -> NSEvent {
+    NSEvent.keyEvent(
+      with: type, location: .zero, modifierFlags: modifiers, timestamp: 0,
+      windowNumber: 0, context: nil, characters: "", charactersIgnoringModifiers: "",
+      isARepeat: false, keyCode: keyCode)!
+  }
+
+  func testKeyboardPreviewShiftUsesTheActualShiftedLayoutAndPreservesEvents() {
+    let preview = KeyboardPreviewView(layoutIdentifier: "3f", layoutName: "세벌식 최종")
+    XCTAssertEqual(preview.visibleLabel(for: "k"), "ㄱ")
+    XCTAssertEqual(preview.visibleLabel(for: "1"), "ㅎ")
+    let shift = previewEvent(.flagsChanged, keyCode: 56, modifiers: .shift)
+
+    XCTAssertTrue(preview.observeKeyboardEvent(shift) === shift)
+
+    XCTAssertTrue(preview.isShiftPressed)
+    XCTAssertEqual(preview.visibleLabel(for: "k"), "2")
+    XCTAssertEqual(preview.visibleLabel(for: "1"), "ㄲ")
+    XCTAssertTrue((preview.accessibilityValue() as? String)?.contains("Shift 누름") == true)
+    preview.observeKeyboardEvent(previewEvent(.flagsChanged, keyCode: 56))
+    XCTAssertFalse(preview.isShiftPressed)
+    XCTAssertEqual(preview.visibleLabel(for: "k"), "ㄱ")
+    XCTAssertFalse(preview.acceptsFirstResponder)
+  }
+
+  func testKeyboardPreviewHighlightsPhysicalKeysAndReleasesAfterKeyUp() {
+    let preview = KeyboardPreviewView(layoutIdentifier: "3f", layoutName: "세벌식 최종")
+    let down = previewEvent(.keyDown, keyCode: 40)
+    XCTAssertTrue(preview.observeKeyboardEvent(down) === down)
+    XCTAssertEqual(preview.pressedKeys, ["k"])
+    XCTAssertTrue((preview.accessibilityValue() as? String)?.contains("ㄱ 키 누름") == true)
+
+    let up = previewEvent(.keyUp, keyCode: 40)
+    XCTAssertTrue(preview.observeKeyboardEvent(up) === up)
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.2))
+    XCTAssertTrue(preview.pressedKeys.isEmpty)
+  }
+
+  func testKeyboardPreviewDetachingAndWindowResigningClearHeldKeys() {
+    let preview = KeyboardPreviewView(layoutIdentifier: "3f", layoutName: "세벌식 최종")
+    let window = NSWindow(
+      contentRect: NSRect(x: 0, y: 0, width: 500, height: 150),
+      styleMask: [.titled], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView?.addSubview(preview)
+    preview.observeKeyboardEvent(previewEvent(.keyDown, keyCode: 40, modifiers: .shift))
+
+    NotificationCenter.default.post(name: NSWindow.didResignKeyNotification, object: window)
+    XCTAssertTrue(preview.pressedKeys.isEmpty)
+    XCTAssertFalse(preview.isShiftPressed)
+
+    preview.observeKeyboardEvent(previewEvent(.keyDown, keyCode: 40))
+    preview.removeFromSuperview()
+    XCTAssertTrue(preview.pressedKeys.isEmpty)
+    window.close()
+  }
+
   func testEveryPageKeyLoopContainsOnlyItsVisibleControlsInReadingOrder() throws {
     for product in [InputMethodProductKind.upstream, .lab, .baram] {
       try assertPageKeyLoops(identity: identity(product))
@@ -2400,6 +2459,10 @@ class InputMethodIdentityTests: XCTestCase {
     let component = try XCTUnwrap(plist["ComponentInputModeDict"] as? [String: Any])
     let modes = try XCTUnwrap(component["tsInputModeListKey"] as? [String: [String: Any]])
     XCTAssertEqual(modes.count, GureumInputSource.allCases.count)
+    let internalRoman = try XCTUnwrap(modes["com.sionyuel.inputmethod.Baram.system"])
+    XCTAssertEqual(internalRoman["tsInputModeIsVisibleKey"] as? Bool, false)
+    let visibleModes = try XCTUnwrap(component["tsVisibleInputModeOrderedArrayKey"] as? [String])
+    XCTAssertFalse(visibleModes.contains("com.sionyuel.inputmethod.Baram.system"))
     let menuIcons = [
       "colemak": "baramcm.png",
       "dvorak": "baramdv.png",

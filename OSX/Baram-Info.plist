@@ -401,7 +401,7 @@ Based on Gureum © 2011-2022 Jeong YunWon and contributors</string>
 				<key>tsInputModeDefaultStateKey</key>
 				<true/>
 				<key>tsInputModeIsVisibleKey</key>
-				<true/>
+				<false/>
 				<key>tsInputModeMenuIconFileKey</key>
 				<string>barameng.png</string>
 				<key>tsInputModePaletteIconFileKey</key>
@@ -414,7 +414,6 @@ Based on Gureum © 2011-2022 Jeong YunWon and contributors</string>
 		</dict>
 		<key>tsVisibleInputModeOrderedArrayKey</key>
 		<array>
-			<string>com.sionyuel.inputmethod.Baram.system</string>
 			<string>com.sionyuel.inputmethod.Baram.qwerty</string>
 			<string>com.sionyuel.inputmethod.Baram.dvorak</string>
 			<string>com.sionyuel.inputmethod.Baram.colemak</string>

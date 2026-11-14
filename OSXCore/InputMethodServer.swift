@@ -9,6 +9,7 @@
 import AppKit
 import Foundation
 import InputMethodKit
+import QuartzCore
 import SwiftIOKit
 
 let debugInputServer = false
@@ -45,7 +46,7 @@ final class AutomaticLayoutChangeHUD {
     effect.blendingMode = .behindWindow
     effect.state = .active
     effect.wantsLayer = true
-    effect.layer?.cornerRadius = 10
+    effect.layer?.cornerRadius = 18
     effect.layer?.masksToBounds = true
     effect.translatesAutoresizingMaskIntoConstraints = false
 
@@ -77,17 +78,27 @@ final class AutomaticLayoutChangeHUD {
     presentationGeneration += 1
     let generation = presentationGeneration
     label.stringValue = message
-    panel.setFrameOrigin(origin(on: targetScreen(for: client)))
+    let finalOrigin = origin(on: targetScreen(for: client))
 
     if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-      panel.alphaValue = 1
-      panel.orderFrontRegardless()
-    } else {
+      panel.setFrameOrigin(finalOrigin)
       panel.alphaValue = 0
       panel.orderFrontRegardless()
       NSAnimationContext.runAnimationGroup { context in
         context.duration = 0.12
+        context.timingFunction = CAMediaTimingFunction(name: .easeOut)
         panel.animator().alphaValue = 1
+      }
+    } else {
+      panel.setFrameOrigin(NSPoint(x: finalOrigin.x, y: finalOrigin.y - 8))
+      panel.alphaValue = 0
+      panel.orderFrontRegardless()
+      NSAnimationContext.runAnimationGroup { context in
+        context.duration = 0.24
+        context.timingFunction = CAMediaTimingFunction(
+          controlPoints: 0.25, 0.1, 0.25, 1)
+        panel.animator().alphaValue = 1
+        panel.animator().setFrameOrigin(finalOrigin)
       }
     }
 
