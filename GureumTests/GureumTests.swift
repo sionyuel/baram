@@ -1264,6 +1264,18 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
     }
   }
 
+  func testAutomaticLayoutChangeHUDUsesTheSionyuelToastTimingContract() {
+    XCTAssertEqual(AutomaticLayoutChangeHUD.displayDuration(for: "짧은 알림"), 2.6)
+    XCTAssertEqual(
+      AutomaticLayoutChangeHUD.displayDuration(for: String(repeating: "a", count: 21)), 2.7,
+      accuracy: 0.001)
+    XCTAssertEqual(
+      AutomaticLayoutChangeHUD.displayDuration(for: String(repeating: "a", count: 100)), 6)
+    XCTAssertEqual(AutomaticLayoutChangeHUD.springProgress(at: 0), 0, accuracy: 0.001)
+    XCTAssertEqual(AutomaticLayoutChangeHUD.springProgress(at: 0.131), 0.9, accuracy: 0.08)
+    XCTAssertEqual(AutomaticLayoutChangeHUD.springProgress(at: 0.732), 1, accuracy: 0.01)
+  }
+
   func testBaramInternalLayoutToggleDoesNotLeaveTheBaramInputSource() {
     let app = app()
     app.controller.receiver.selectsClientInputModeForLayoutChanges = { false }

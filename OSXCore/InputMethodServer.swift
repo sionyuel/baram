@@ -22,10 +22,13 @@ private final class AutomaticLayoutChangeHUDPanel: NSPanel {
 
 final class AutomaticLayoutChangeHUD {
   static let shared = AutomaticLayoutChangeHUD()
+  private static let springDuration: TimeInterval = 0.732
 
   private let panel: NSPanel
+  private let effectView: NSVisualEffectView
   private let label: NSTextField
   private var hideWorkItem: DispatchWorkItem?
+  private var springTimer: Timer?
   private var lastAnnouncement: (message: String, time: TimeInterval)?
   private var presentationGeneration = 0
 
@@ -41,27 +44,46 @@ final class AutomaticLayoutChangeHUD {
     panel.hasShadow = true
     panel.ignoresMouseEvents = true
 
-    let effect = NSVisualEffectView(frame: panel.contentView?.bounds ?? .zero)
-    effect.material = .hudWindow
-    effect.blendingMode = .behindWindow
-    effect.state = .active
-    effect.wantsLayer = true
-    effect.layer?.cornerRadius = 18
-    effect.layer?.masksToBounds = true
-    effect.translatesAutoresizingMaskIntoConstraints = false
+    effectView = NSVisualEffectView(frame: panel.contentView?.bounds ?? .zero)
+    effectView.material = .hudWindow
+    effectView.blendingMode = .behindWindow
+    effectView.state = .active
+    effectView.wantsLayer = true
+    effectView.layer?.cornerRadius = 18
+    effectView.layer?.masksToBounds = true
+    effectView.translatesAutoresizingMaskIntoConstraints = false
 
     label = NSTextField(labelWithString: "")
     label.alignment = .center
     label.font = .systemFont(ofSize: 13, weight: .semibold)
     label.textColor = .labelColor
     label.translatesAutoresizingMaskIntoConstraints = false
-    effect.addSubview(label)
-    panel.contentView = effect
+    effectView.addSubview(label)
+    panel.contentView = effectView
     NSLayoutConstraint.activate([
-      label.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: 16),
-      label.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -16),
-      label.centerYAnchor.constraint(equalTo: effect.centerYAnchor),
+      label.leadingAnchor.constraint(equalTo: effectView.leadingAnchor, constant: 16),
+      label.trailingAnchor.constraint(equalTo: effectView.trailingAnchor, constant: -16),
+      label.centerYAnchor.constraint(equalTo: effectView.centerYAnchor),
     ])
+  }
+
+  static func displayDuration(for message: String) -> TimeInterval {
+    min(6, 2.6 + Double(max(0, message.count - 20)) * 0.1)
+  }
+
+  static func springProgress(at time: TimeInterval) -> CGFloat {
+    let mass = 1.0
+    let stiffness = 449.0
+    let damping = 31.4
+    let omega0 = sqrt(stiffness / mass)
+    let zeta = damping / (2 * sqrt(stiffness * mass))
+    let omegaD = omega0 * sqrt(1 - zeta * zeta)
+    let envelope = exp(-zeta * omega0 * time)
+    let response =
+      1
+      - envelope
+      * (cos(omegaD * time) + (zeta * omega0 / omegaD) * sin(omegaD * time))
+    return CGFloat(response)
   }
 
   func show(_ message: String, client: IMKTextInput & IMKUnicodeTextInput) {
@@ -75,31 +97,40 @@ final class AutomaticLayoutChangeHUD {
 
   private func present(_ message: String, client: IMKTextInput & IMKUnicodeTextInput) {
     hideWorkItem?.cancel()
+    springTimer?.invalidate()
+    springTimer = nil
     presentationGeneration += 1
     let generation = presentationGeneration
+    let repeatsVisibleMessage = panel.isVisible && label.stringValue == message
     label.stringValue = message
     let finalOrigin = origin(on: targetScreen(for: client))
+    let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
 
-    if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+    if repeatsVisibleMessage {
+      panel.setFrameOrigin(finalOrigin)
+      panel.alphaValue = 1
+      if !reduceMotion { pulse() }
+    } else if reduceMotion {
       panel.setFrameOrigin(finalOrigin)
       panel.alphaValue = 0
       panel.orderFrontRegardless()
       NSAnimationContext.runAnimationGroup { context in
-        context.duration = 0.12
-        context.timingFunction = CAMediaTimingFunction(name: .easeOut)
-        panel.animator().alphaValue = 1
-      }
-    } else {
-      panel.setFrameOrigin(NSPoint(x: finalOrigin.x, y: finalOrigin.y - 8))
-      panel.alphaValue = 0
-      panel.orderFrontRegardless()
-      NSAnimationContext.runAnimationGroup { context in
-        context.duration = 0.24
+        context.duration = 0.15
         context.timingFunction = CAMediaTimingFunction(
           controlPoints: 0.25, 0.1, 0.25, 1)
         panel.animator().alphaValue = 1
-        panel.animator().setFrameOrigin(finalOrigin)
       }
+    } else {
+      panel.setFrameOrigin(NSPoint(x: finalOrigin.x, y: finalOrigin.y - 12))
+      panel.alphaValue = 0
+      panel.orderFrontRegardless()
+      NSAnimationContext.runAnimationGroup { context in
+        context.duration = 0.2
+        context.timingFunction = CAMediaTimingFunction(
+          controlPoints: 0.333, 0, 0.667, 1)
+        panel.animator().alphaValue = 1
+      }
+      startSpring(to: finalOrigin, generation: generation)
     }
 
     let now = ProcessInfo.processInfo.systemUptime
@@ -115,20 +146,64 @@ final class AutomaticLayoutChangeHUD {
 
     let workItem = DispatchWorkItem { [weak self] in self?.hide(generation: generation) }
     hideWorkItem = workItem
-    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: workItem)
+    DispatchQueue.main.asyncAfter(
+      deadline: .now() + Self.displayDuration(for: message), execute: workItem)
+  }
+
+  private func startSpring(to finalOrigin: NSPoint, generation: Int) {
+    let startedAt = ProcessInfo.processInfo.systemUptime
+    let timer = Timer(timeInterval: 1 / 60, repeats: true) { [weak self] timer in
+      guard let self, generation == self.presentationGeneration else {
+        timer.invalidate()
+        return
+      }
+      let elapsed = ProcessInfo.processInfo.systemUptime - startedAt
+      if elapsed >= Self.springDuration {
+        timer.invalidate()
+        self.springTimer = nil
+        self.panel.setFrameOrigin(finalOrigin)
+        return
+      }
+      let progress = Self.springProgress(at: elapsed)
+      self.panel.setFrameOrigin(
+        NSPoint(x: finalOrigin.x, y: finalOrigin.y - 12 * (1 - progress)))
+    }
+    springTimer = timer
+    RunLoop.main.add(timer, forMode: .common)
+  }
+
+  private func pulse() {
+    guard let layer = effectView.layer else { return }
+    layer.removeAnimation(forKey: "automaticLayoutChangePulse")
+    let animation = CAKeyframeAnimation(keyPath: "transform.scale")
+    animation.values = [1, 1.04, 1]
+    animation.keyTimes = [0, 0.5, 1]
+    animation.duration = 0.16
+    let ease = CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
+    animation.timingFunctions = [
+      ease, ease,
+    ]
+    layer.add(animation, forKey: "automaticLayoutChangePulse")
   }
 
   private func hide(generation: Int) {
     guard generation == presentationGeneration else { return }
     hideWorkItem = nil
-    if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
-      panel.orderOut(nil)
-      return
-    }
+    springTimer?.invalidate()
+    springTimer = nil
+    let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    let origin = panel.frame.origin
     NSAnimationContext.runAnimationGroup(
       { context in
-        context.duration = 0.12
+        context.duration = reduceMotion ? 0.15 : 0.18
+        context.timingFunction =
+          reduceMotion
+          ? CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
+          : CAMediaTimingFunction(controlPoints: 0.4, 0, 1, 1)
         panel.animator().alphaValue = 0
+        if !reduceMotion {
+          panel.animator().setFrameOrigin(NSPoint(x: origin.x, y: origin.y - 8))
+        }
       },
       completionHandler: { [weak self] in
         guard let self, generation == self.presentationGeneration else { return }
