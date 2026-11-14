@@ -58,7 +58,7 @@ Observed and retained preferences structure:
 
 - **입력**: Hangul composition, strict combinations, configurable grave/Shift-grave characters, Roman layout, Option behavior, and a keyboard preview generated from the active layout XML.
 - **단축키**: Hangul/Roman switch, Hanja/emoji, direct language shortcuts, plus always-visible Right-key Switching and System Shortcuts groups with native Open buttons.
-- **고급**: application compatibility, per-application Esc behavior, opt-in automatic Hangul conversion for all or selected apps, stable updates, and clearly labelled experimental physical input. Internal crash verification is not user-facing.
+- **고급**: application compatibility, per-application Esc behavior, opt-in automatic Hangul/Roman correction for all or selected apps, stable updates, and clearly labelled experimental physical input. Internal crash verification is not user-facing.
 
 Brand/readme hierarchy: name → one-line purpose → verified capabilities → installation → trial/rollback → provenance. Keep experimental status and ad-hoc/notarization facts near installation decisions.
 
@@ -139,7 +139,8 @@ Iconography: original **바람 궤적 B** mark; system SF Symbols for functional
 | Value menu | Borderless small NSPopUpButton retaining native menu/hover/focus/type-select behavior, with a semantic-color circular `chevron.up.chevron.down` accessory matching current System Settings |
 | Two-choice setting | The same native popup language as other value settings; Option reuses its existing popup/action |
 | Special-character key | Two 72 pt native text fields configure unshifted and Shift+grave output; one grapheme only, empty restores the active layout's default |
-| Automatic Hangul conversion | Baram-only scope picker under Advanced / App behavior: off, all apps, or multiple selected apps. The current Roman word remains marked text until whitespace commits the original or complete Sebeolsik result once; success also switches to Hangul. Previously committed document text is not read or replaced |
+| Automatic Hangul/Roman correction | Baram-only scope picker under Advanced / App behavior: off, all apps, or multiple selected apps. The current word remains input-method-owned marked text until whitespace commits it once. A complete Sebeolsik result switches to Hangul; a dictionary-confirmed mistyped English word switches to Roman. Previously committed document text is never read or replaced |
+| Automatic-switch HUD | A single nonactivating 220×36 pt HUD appears 56 pt above the active screen's lower edge for 0.8 seconds after a successful commit. It says `한글로 자동 전환됨` or `영문으로 자동 전환됨`, never takes focus, ignores the mouse, announces through VoiceOver, and reuses one timer instead of queueing notices |
 | Shortcut capture | Existing MASShortcut behavior with consistent width and accessible label |
 | System support | Always-visible compact groups and native Open buttons; no disclosure or inline-bezel links |
 | Installer | Straight instructions, concrete version/architecture/signature status, scoped backup/rollback |

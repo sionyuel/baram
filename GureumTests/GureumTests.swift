@@ -1097,7 +1097,7 @@ private final class UnreadableRomanInputClient: MockInputClient {
   }
 
   override func selectedRange() -> NSRange {
-    if super.markedRange().location != NSNotFound {
+    if super.markedRange().location != NSNotFound, super.markedRange().length > 0 {
       return NSRange(location: 0, length: 0)
     }
     return super.selectedRange()
@@ -1146,6 +1146,147 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
     }
     XCTAssertNil(RomanLayoutAutocorrector.convert("jfshea", keyboard: "2-full"))
     XCTAssertNil(RomanLayoutAutocorrector.convert("jfshea", keyboard: "missing"))
+  }
+
+  func testHangulMistypedEnglishConvertsAndSwitchesFollowingInputToRoman() {
+    let app = app()
+    app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    app.inputKeys("apple")
+    XCTAssertEqual(app.client.string, app.client.markedString())
+    app.inputText(" ", key: .space)
+    XCTAssertEqual(app.client.string, "apple ")
+    XCTAssertTrue(app.controller.receiver.composer.delegate is RomanComposer)
+    app.inputKeys("world")
+    app.inputText(" ", key: .space)
+    XCTAssertEqual(app.client.string, "apple world ")
+  }
+
+  func testReverseCorrectionPreservesNormalHangulAndShortEnglishCollisions() {
+    for keys in ["jfshea", "if", "or", "it", "he", "me"] {
+      let app = app()
+      app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+      app.inputKeys(keys)
+      let original = app.client.string
+      app.inputText(" ", key: .space)
+      XCTAssertEqual(app.client.string, original + " ", keys)
+      XCTAssertTrue(app.controller.receiver.composer.delegate is HangulComposer)
+    }
+  }
+
+  func testReverseCorrectionBackspaceReplaysWholeWord() {
+    let app = app()
+    app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    app.inputKeys("applx")
+    app.inputDelete()
+    app.inputKeys("e")
+    app.inputText(" ", key: .space)
+    XCTAssertEqual(app.client.string, "apple ")
+  }
+
+  func testReverseCorrectionReleasesBackspaceAfterDeletingTheWholeBuffer() {
+    let app = app()
+    app.client.string = "prefix"
+    app.client.setSelectedRange(NSRange(location: 6, length: 0))
+    app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    app.inputKeys("a")
+    XCTAssertFalse(app.client.markedString().isEmpty)
+
+    app.inputDelete()
+    XCTAssertEqual(app.client.string, "prefix")
+    XCTAssertEqual(app.client.markedString(), "")
+
+    app.inputDelete()
+    XCTAssertEqual(app.client.string, "prefi")
+  }
+
+  func testReverseCorrectionPreservesBoundariesCasePunctuationAndRepeats() {
+    for (boundary, key) in [(" ", KeyCode.space), ("\n", .return), ("\t", .tab)] {
+      for word in ["Apple", "hello!", "compact.compact", "appleapple"] {
+        let app = app()
+        app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+        app.inputKeys(word)
+        app.inputText(boundary, key: key)
+        XCTAssertEqual(app.client.string, word + boundary)
+        XCTAssertTrue(app.controller.receiver.composer.delegate is RomanComposer)
+      }
+    }
+  }
+
+  func testReverseCorrectionWorksWithoutDocumentReadsOrAbsoluteMarkedSelection() {
+    let app = app(client: UnreadableRomanInputClient())
+    app.client.string = "🙂 앞 문장 "
+    app.client.setSelectedRange(
+      NSRange(location: (app.client.string as NSString).length, length: 0))
+    app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    app.inputKeys("apple")
+    app.inputText(" ", key: .space)
+    XCTAssertEqual(app.client.string, "🙂 앞 문장 apple ")
+  }
+
+  func testReverseCorrectionExternalCommitAndSecureInputPreserveOriginalOnce() {
+    for useSecureBoundary in [false, true] {
+      let app = app()
+      app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+      app.inputKeys("apple")
+      let original = app.client.string
+      if useSecureBoundary {
+        app.controller.receiver.romanAutocorrectionSecureInput = { true }
+        app.inputText(" ", key: .space)
+        XCTAssertEqual(app.client.string, original + " ")
+      } else {
+        app.controller.commitComposition(app.client)
+        app.controller.updateComposition()
+        XCTAssertEqual(app.client.string, original)
+      }
+      XCTAssertTrue(app.controller.receiver.composer.delegate is HangulComposer)
+    }
+  }
+
+  func testAutomaticLayoutChangeCallbackOnlyFollowsSuccessfulCommitOnce() {
+    for (keys, startsInHangul, expected) in [
+      ("jfshea", false, "hangul"), ("apple", true, "roman"),
+      ("apple", false, ""), ("jfshea", true, ""),
+    ] {
+      let app = app()
+      if startsInHangul {
+        app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+      }
+      var directions: [String] = []
+      app.controller.receiver.automaticLayoutChangeCommitted = {
+        directions.append($0 == .hangul ? "hangul" : "roman")
+        XCTAssertFalse(app.client.string.isEmpty)
+      }
+      app.inputKeys(keys)
+      XCTAssertTrue(directions.isEmpty)
+      app.inputText(" ", key: .space)
+      app.inputText(" ", key: .space)
+      XCTAssertEqual(directions, expected.isEmpty ? [] : [expected])
+    }
+  }
+
+  func testReverseCorrectionUsesTheSelectedRomanKeyboardMapping() {
+    for (source, type) in [
+      (GureumInputSource.qwerty, RomanComposer.ComposerType.qwerty),
+      (.dvorak, .dvorak), (.colemak, .colemak),
+    ] {
+      let app = app(romanSource: source)
+      app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+      let physicalMap = Dictionary(
+        zip(type.keyboardData, RomanComposer.ComposerType.qwerty.keyboardData),
+        uniquingKeysWith: { first, _ in first })
+      app.inputKeys(String("apple".map { physicalMap[$0]! }))
+      app.inputText(" ", key: .space)
+      XCTAssertEqual(app.client.string, "apple ")
+      XCTAssertEqual(app.controller.receiver.composer.inputMode, source.rawValue)
+    }
+  }
+
+  func testReverseWordRemainsAvailableToHanjaSearch() {
+    let app = app()
+    app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    app.inputKeys("jfshea")
+    _ = app.controller.receiver.input(event: .changeLayout(.search, true), client: app.client)
+    XCTAssertEqual(app.controller.receiver.composer.searchComposer.composedString, "안녕")
   }
 
   func testConversionWaitsForWhitespaceAndPreservesBoundary() {
@@ -1664,7 +1805,7 @@ class PreferencesFormTests: IsolatedChordConfigurationTests {
     let views = descendants(child.view).filter { !$0.isHiddenOrHasHiddenAncestor }
     let menu = try XCTUnwrap(
       views.compactMap { $0 as? NSPopUpButton }.first {
-        $0.accessibilityLabel() == "실험 · 자동 한글 변환"
+        $0.accessibilityLabel() == "실험 · 자동 한영 전환"
       })
     XCTAssertEqual(menu.controlSize, .small)
     XCTAssertFalse(menu.isBordered)
@@ -1810,7 +1951,7 @@ class PreferencesFormTests: IsolatedChordConfigurationTests {
   private func assertPageKeyLoops(identity: InputMethodIdentity) throws {
     let (window, child) = try form(identity: identity)
     var advanced = ["두벌식 종성 결합", "조합 상태 유지", "Esc로 로마자 전환"]
-    if identity.isBaram { advanced.append("실험 · 자동 한글 변환") }
+    if identity.isBaram { advanced.append("실험 · 자동 한영 전환") }
     if identity.supportsPhysicalChording {
       advanced.append(contentsOf: ["동시에 누른 키 묶기", "키 감지 권한 허용"])
     }

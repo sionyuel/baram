@@ -59,6 +59,10 @@ enum RomanLayoutAutocorrector {
 
 }
 
+enum AutomaticLayoutChangeDirection {
+  case hangul, roman
+}
+
 public class InputReceiver: InputTextDelegate {
   var inputClient: IMKTextInput & IMKUnicodeTextInput
   var composer = GureumComposer()
@@ -69,6 +73,12 @@ public class InputReceiver: InputTextDelegate {
   private var bufferedRomanStartLocation: Int?
   private var romanAutocorrectionSuppressed = false
   private var pendingRomanCommitReplacementRange: NSRange?
+  private weak var bufferedHangulClient: AnyObject?
+  private var bufferedHangulStartLocation: Int?
+  private var bufferedHangulRomanOutput = ""
+  private var hangulAutocorrectionSuppressed = false
+  private var pendingAutomaticLayoutChange: AutomaticLayoutChangeDirection?
+  var automaticLayoutChangeCommitted: (AutomaticLayoutChangeDirection) -> Void = { _ in }
   var romanAutocorrectionAvailable: () -> Bool = { InputMethodIdentity.current.isBaram }
   var romanAutocorrectionSecureInput: () -> Bool = {
     PhysicalKeyEventSource.shared.secureInputEnabled
@@ -86,6 +96,7 @@ public class InputReceiver: InputTextDelegate {
   }
 
   func resetRomanAutocorrection() {
+    resetHangulAutocorrection()
     guard composer.romanComposer.hasBufferedWord else {
       bufferedRomanStartLocation = nil
       return
@@ -99,6 +110,127 @@ public class InputReceiver: InputTextDelegate {
     }
     bufferedRomanClient = nil
     bufferedRomanStartLocation = nil
+  }
+
+  private func resetHangulAutocorrection() {
+    let hangul = composer.hangulComposer
+    guard hangul.isBufferingWord else { return }
+    let owner = bufferedHangulClient as? (IMKTextInput & IMKUnicodeTextInput) ?? inputClient
+    let range = Self.bufferedRomanReplacementRange(
+      markedRange: owner.markedRange(), bufferedStartLocation: bufferedHangulStartLocation,
+      selectionRange: owner.selectedRange(),
+      composedUTF16Length: (hangul.composedString as NSString).length)
+    hangul.finishBufferedWord()
+    let original = hangul.dequeueCommitString()
+    bufferedHangulClient = nil
+    bufferedHangulStartLocation = nil
+    bufferedHangulRomanOutput = ""
+    hangulAutocorrectionSuppressed = true
+    if !original.isEmpty {
+      owner.insertText(
+        original, replacementRange: range ?? NSRange(location: NSNotFound, length: 0))
+    }
+  }
+
+  private func bufferedHangulInput(
+    text: String?, key: KeyCode, modifiers: NSEvent.ModifierFlags,
+    client: IMKTextInput & IMKUnicodeTextInput
+  ) -> InputResult? {
+    let configuration = Configuration.shared
+    let hangul = composer.hangulComposer
+    guard composer.delegate is HangulComposer else {
+      resetHangulAutocorrection()
+      return nil
+    }
+    let bundle = Self.autocorrectionBundleIdentifier(
+      client: client.bundleIdentifier(),
+      frontmostApplication: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
+    if let owner = bufferedHangulClient, owner !== (client as AnyObject) {
+      resetHangulAutocorrection()
+    }
+    guard romanAutocorrectionAvailable(),
+      configuration.usesHangulLayoutAutocorrection(for: bundle),
+      !romanAutocorrectionSecureInput(),
+      modifiers.intersection([.capsLock, .command, .control, .option, .function]).isEmpty
+    else {
+      resetHangulAutocorrection()
+      return nil
+    }
+    if [.space, .return, .tab].contains(key) {
+      defer { hangulAutocorrectionSuppressed = false }
+      guard hangul.isBufferingWord else { return nil }
+      let original = hangul.composedString
+      let candidates = RomanLayoutAutocorrector.englishWordCandidates(bufferedHangulRomanOutput)
+      let hasJamo = original.unicodeScalars.contains {
+        (0x1100...0x11FF).contains($0.value) || (0x3130...0x318F).contains($0.value)
+      }
+      let eligible =
+        !candidates.isEmpty
+        && candidates.allSatisfy {
+          $0.count >= 4 || ($0.count == 3 && hasJamo)
+        }
+      let converted =
+        eligible
+          && RomanLayoutAutocorrector.isKnownEnglishExpression(
+            bufferedHangulRomanOutput, isKnownWord: romanAutocorrectionKnownEnglishWord)
+        ? bufferedHangulRomanOutput : nil
+      pendingRomanCommitReplacementRange = Self.bufferedRomanReplacementRange(
+        markedRange: client.markedRange(), bufferedStartLocation: bufferedHangulStartLocation,
+        selectionRange: client.selectedRange(), composedUTF16Length: (original as NSString).length)
+      hangul.finishBufferedWord(replacingWith: converted)
+      bufferedHangulClient = nil
+      bufferedHangulStartLocation = nil
+      bufferedHangulRomanOutput = ""
+      if converted != nil {
+        pendingAutomaticLayoutChange = .roman
+        _ = input(event: .changeLayout(.roman, false), client: client)
+      }
+      return InputResult(processed: false, action: .commit)
+    }
+    if key == .delete, hangul.isBufferingWord {
+      hangul.deleteBufferedKey(client: client)
+      if !bufferedHangulRomanOutput.isEmpty { bufferedHangulRomanOutput.removeLast() }
+      if !hangul.isBufferingWord {
+        bufferedHangulClient = nil
+        bufferedHangulStartLocation = nil
+      }
+      return .processed
+    }
+    guard !hangulAutocorrectionSuppressed else { return nil }
+    let physicalMap = modifiers.contains(.shift) ? keyMapUpper : keyMapLower
+    guard key.isKeyMappable, physicalMap.indices.contains(key.rawValue),
+      let physical = physicalMap[key.rawValue], physical.unicodeScalars.count == 1,
+      physical.unicodeScalars.allSatisfy({ (33...126).contains($0.value) }),
+      bufferedHangulRomanOutput.count < 64, key != .ansiGrave
+    else {
+      resetHangulAutocorrection()
+      return nil
+    }
+    if !hangul.isBufferingWord {
+      let selection = client.selectedRange()
+      let marked = client.markedRange()
+      guard selection.location != NSNotFound, selection.length == 0,
+        marked.location == NSNotFound || marked.length == 0,
+        hangul.composedString.isEmpty, hangul.commitString.isEmpty
+      else {
+        hangulAutocorrectionSuppressed = true
+        return nil
+      }
+      bufferedHangulClient = client as AnyObject
+      bufferedHangulStartLocation = selection.location
+      hangul.beginBufferedWord()
+    }
+    let output =
+      composer.romanComposer.map(text: text ?? physical, key: key, modifiers: modifiers)
+      .map(String.init) ?? text ?? physical
+    bufferedHangulRomanOutput += output
+    let result = hangul.appendBufferedKey(
+      text: text, key: key, modifiers: modifiers, client: client)
+    if result.action != .none || !result.processed {
+      resetHangulAutocorrection()
+      return .notProcessed
+    }
+    return .processed
   }
 
   static func autocorrectionBundleIdentifier(
@@ -177,6 +309,7 @@ public class InputReceiver: InputTextDelegate {
       bufferedRomanClient = nil
       bufferedRomanStartLocation = nil
       if converted != nil {
+        pendingAutomaticLayoutChange = .hangul
         _ = input(event: .changeLayout(.hangul, false), client: client)
       }
       return InputResult(processed: false, action: .commit)
@@ -308,7 +441,8 @@ public class InputReceiver: InputTextDelegate {
 
     let hadComposedString = !_internalComposedString.isEmpty
     let result =
-      bufferedRomanInput(text: string, key: keyCode, modifiers: flags, client: sender)
+      bufferedHangulInput(text: string, key: keyCode, modifiers: flags, client: sender)
+      ?? bufferedRomanInput(text: string, key: keyCode, modifiers: flags, client: sender)
       ?? input2(text: string, keyCode: keyCode, modifiers: flags, client: sender)
 
     // 합성 후보가 있다면 보여준다
@@ -340,6 +474,12 @@ public class InputReceiver: InputTextDelegate {
   }
 
   func input(event: InputEvent, client sender: IMKTextInput & IMKUnicodeTextInput) -> InputResult {
+    if case .changeLayout(.search, _) = event {
+      composer.hangulComposer.prepareBufferedWordForSearch()
+      bufferedHangulClient = nil
+      bufferedHangulStartLocation = nil
+      bufferedHangulRomanOutput = ""
+    }
     resetRomanAutocorrection()
     switch event {
     case .changeLayout(let layout, let processed):
@@ -349,7 +489,10 @@ public class InputReceiver: InputTextDelegate {
         layout == .toggleByCapsLock || layout == .toggleByRightKey ? .toggle : layout
       let result = composer.changeLayout(innerLayout, client: sender)
       let changedMode = previousMode != composer.inputMode
-      if changedMode { romanAutocorrectionSuppressed = false }
+      if changedMode {
+        romanAutocorrectionSuppressed = false
+        hangulAutocorrectionSuppressed = false
+      }
       if changedMode { controller.endPhysicalLayoutSession() }
       // 합성 후보가 있다면 보여준다
       InputMethodServer.shared.showOrHideCandidates(controller: controller)
@@ -418,6 +561,7 @@ extension InputReceiver {  // IMKServerInput
 
     // 커밋할 문자가 없으면 중단
     if commitString.isEmpty {
+      pendingAutomaticLayoutChange = nil
       return false
     }
 
@@ -436,6 +580,11 @@ extension InputReceiver {  // IMKServerInput
     }
     // NSLog("commit \(commitString) to \(range)")
     controller.client().insertText(commitString, replacementRange: range)
+
+    if let direction = pendingAutomaticLayoutChange {
+      pendingAutomaticLayoutChange = nil
+      automaticLayoutChangeCommitted(direction)
+    }
 
     InputMethodServer.shared.showOrHideCandidates(controller: controller)
 

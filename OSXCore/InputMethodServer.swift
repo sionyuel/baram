@@ -6,12 +6,142 @@
 //  Copyright © 2018 youknowone.org. All rights reserved.
 //
 
+import AppKit
 import Foundation
 import InputMethodKit
 import SwiftIOKit
 
 let debugInputServer = false
 let debugIOKitEvent = false
+
+private final class AutomaticLayoutChangeHUDPanel: NSPanel {
+  override var canBecomeKey: Bool { false }
+  override var canBecomeMain: Bool { false }
+}
+
+final class AutomaticLayoutChangeHUD {
+  static let shared = AutomaticLayoutChangeHUD()
+
+  private let panel: NSPanel
+  private let label: NSTextField
+  private var hideWorkItem: DispatchWorkItem?
+  private var lastAnnouncement: (message: String, time: TimeInterval)?
+  private var presentationGeneration = 0
+
+  private init() {
+    panel = AutomaticLayoutChangeHUDPanel(
+      contentRect: NSRect(x: 0, y: 0, width: 220, height: 36),
+      styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
+    panel.level = .floating
+    panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
+    panel.animationBehavior = .none
+    panel.backgroundColor = .clear
+    panel.isOpaque = false
+    panel.hasShadow = true
+    panel.ignoresMouseEvents = true
+
+    let effect = NSVisualEffectView(frame: panel.contentView?.bounds ?? .zero)
+    effect.material = .hudWindow
+    effect.blendingMode = .behindWindow
+    effect.state = .active
+    effect.wantsLayer = true
+    effect.layer?.cornerRadius = 10
+    effect.layer?.masksToBounds = true
+    effect.translatesAutoresizingMaskIntoConstraints = false
+
+    label = NSTextField(labelWithString: "")
+    label.alignment = .center
+    label.font = .systemFont(ofSize: 13, weight: .semibold)
+    label.textColor = .labelColor
+    label.translatesAutoresizingMaskIntoConstraints = false
+    effect.addSubview(label)
+    panel.contentView = effect
+    NSLayoutConstraint.activate([
+      label.leadingAnchor.constraint(equalTo: effect.leadingAnchor, constant: 16),
+      label.trailingAnchor.constraint(equalTo: effect.trailingAnchor, constant: -16),
+      label.centerYAnchor.constraint(equalTo: effect.centerYAnchor),
+    ])
+  }
+
+  func show(_ message: String, client: IMKTextInput & IMKUnicodeTextInput) {
+    DispatchQueue.main.async { [weak self, weak client = client as AnyObject] in
+      guard let self,
+        let client = client as? (IMKTextInput & IMKUnicodeTextInput)
+      else { return }
+      self.present(message, client: client)
+    }
+  }
+
+  private func present(_ message: String, client: IMKTextInput & IMKUnicodeTextInput) {
+    hideWorkItem?.cancel()
+    presentationGeneration += 1
+    let generation = presentationGeneration
+    label.stringValue = message
+    panel.setFrameOrigin(origin(on: targetScreen(for: client)))
+
+    if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+      panel.alphaValue = 1
+      panel.orderFrontRegardless()
+    } else {
+      panel.alphaValue = 0
+      panel.orderFrontRegardless()
+      NSAnimationContext.runAnimationGroup { context in
+        context.duration = 0.12
+        panel.animator().alphaValue = 1
+      }
+    }
+
+    let now = ProcessInfo.processInfo.systemUptime
+    if lastAnnouncement?.message != message || now - (lastAnnouncement?.time ?? 0) >= 1 {
+      NSAccessibility.post(
+        element: label, notification: .announcementRequested,
+        userInfo: [
+          .announcement: message,
+          .priority: NSAccessibilityPriorityLevel.medium.rawValue,
+        ])
+      lastAnnouncement = (message, now)
+    }
+
+    let workItem = DispatchWorkItem { [weak self] in self?.hide(generation: generation) }
+    hideWorkItem = workItem
+    DispatchQueue.main.asyncAfter(deadline: .now() + 0.8, execute: workItem)
+  }
+
+  private func hide(generation: Int) {
+    guard generation == presentationGeneration else { return }
+    hideWorkItem = nil
+    if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+      panel.orderOut(nil)
+      return
+    }
+    NSAnimationContext.runAnimationGroup(
+      { context in
+        context.duration = 0.12
+        panel.animator().alphaValue = 0
+      },
+      completionHandler: { [weak self] in
+        guard let self, generation == self.presentationGeneration else { return }
+        self.panel.orderOut(nil)
+      })
+  }
+
+  private func targetScreen(for client: IMKTextInput & IMKUnicodeTextInput) -> NSScreen? {
+    let selection = client.selectedRange()
+    guard selection.location != NSNotFound else { return NSScreen.main ?? NSScreen.screens.first }
+    var lineRect = NSRect.zero
+    _ = client.attributes(forCharacterIndex: selection.location, lineHeightRectangle: &lineRect)
+    return NSScreen.screens.first(where: { $0.frame.intersects(lineRect) })
+      ?? NSScreen.main ?? NSScreen.screens.first
+  }
+
+  private func origin(on screen: NSScreen?) -> NSPoint {
+    guard let screen else { return .zero }
+    let visibleFrame = screen.visibleFrame
+    return NSPoint(
+      x: visibleFrame.midX - panel.frame.width / 2,
+      y: visibleFrame.minY + 56)
+  }
+}
 
 extension IMKServer {
   convenience init?(bundle: Bundle) {

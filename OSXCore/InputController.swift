@@ -118,6 +118,15 @@ public class InputController: IMKInputController {
     assert(InputMethodServer.shared.server === server)
     receiver = InputReceiver(
       server: server, delegate: delegate, client: inputClient, controller: self)
+    if InputMethodIdentity.current.isBaram,
+      ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] == nil
+    {
+      receiver.automaticLayoutChangeCommitted = { [weak receiver] direction in
+        guard let client = receiver?.inputClient else { return }
+        let message = direction == .hangul ? "한글로 자동 전환됨" : "영문으로 자동 전환됨"
+        AutomaticLayoutChangeHUD.shared.show(message, client: client)
+      }
+    }
   }
 
   override init() {

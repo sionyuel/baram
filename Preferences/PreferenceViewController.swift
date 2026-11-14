@@ -515,7 +515,7 @@ final class PreferenceViewController: NSViewController, NSTextFieldDelegate {
     autocorrectionApplicationMenu = SystemSettingsPopUpButton(frame: .zero, pullsDown: false)
     autocorrectionApplicationMenu.target = self
     autocorrectionApplicationMenu.action = #selector(autocorrectionApplicationMenuChanged(_:))
-    styleMenu(autocorrectionApplicationMenu, label: "실험 · 자동 한글 변환")
+    styleMenu(autocorrectionApplicationMenu, label: "실험 · 자동 한영 전환")
     refreshAutocorrectionApplicationMenu()
 
     var inputSections: [NSView] = [
@@ -610,11 +610,11 @@ final class PreferenceViewController: NSViewController, NSTextFieldDelegate {
     var applicationRows = [settingRow("Esc로 로마자 전환", control: escapeKeyApplicationMenu)]
     if productIdentity.isBaram {
       applicationRows.append(
-        settingRow("실험 · 자동 한글 변환", control: autocorrectionApplicationMenu))
+        settingRow("실험 · 자동 한영 전환", control: autocorrectionApplicationMenu))
     }
     let applicationHelp =
       productIdentity.isBaram
-      ? "모든 앱 또는 선택한 앱에 적용합니다. Esc는 로마자로 전환합니다. 자동 한글 변환은 바람의 로마자 모드에서 공백·Return·Tab을 누를 때 완전히 조합된 세벌식 단어만 바꾸고 한글 모드로 전환합니다. 예: jfshea → 안녕. 일부 터미널 앱과 보안 입력은 제외됩니다."
+      ? "모든 앱 또는 선택한 앱에 적용합니다. Esc는 로마자로 전환합니다. 자동 한영 전환은 공백·Return·Tab에서 완전히 조합된 세벌식 단어나 사전에 있는 영단어만 바꾸고 실제 입력 모드도 전환합니다. 예: jfshea → 안녕, 세벌식으로 잘못 친 apple → apple. 일부 터미널 앱과 보안 입력은 제외됩니다."
       : "선택한 Vim·터미널·코드 편집기에서만 Esc 또는 Control+[로 한글 조합을 끝내고 로마자로 전환합니다."
     advancedSections.append(
       section("앱별 동작", rows: applicationRows, explanation: helperText(applicationHelp)))
@@ -965,8 +965,10 @@ final class PreferenceViewController: NSViewController, NSTextFieldDelegate {
     case "choose":
       guard
         let applications = chooseApplications(
-          title: "자동 한글 변환을 사용할 앱 선택",
-          message: "바람의 로마자 모드에서 세벌식으로 완전히 조합되는 단어를 바꿉니다. 예: jfshea → 안녕. 일부 터미널 앱과 보안 입력은 제외됩니다.")
+          title: "자동 한영 전환을 사용할 앱 선택",
+          message:
+            "잘못 선택한 입력 모드에서 완전히 조합된 세벌식 단어나 사전에 있는 영단어를 바꾸고 실제 한영 모드도 전환합니다. 예: jfshea → 안녕, 한글 모드에서 잘못 친 apple → apple. 일부 터미널 앱과 보안 입력은 제외됩니다."
+        )
       else { return }
       configuration.hangulLayoutAutocorrectionAllApplications = false
       configuration.hangulLayoutAutocorrectionApplications = applications

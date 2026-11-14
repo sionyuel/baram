@@ -115,6 +115,8 @@ final class HangulComposer: NSObject, Composer {
   private var _commitString: String
   /// 합성 중인 문자열. 현재는 JDK 호환 모드에만 사용된다.
   private var _composedString: String
+  private(set) var isBufferingWord = false
+  private var bufferedKeys: [(String?, KeyCode, NSEvent.ModifierFlags)] = []
 
   let inputContext: HGInputContext
   private(set) var keyboardIdentifier: String
@@ -169,16 +171,16 @@ final class HangulComposer: NSObject, Composer {
 
   var composedString: String {
     let preedit = inputContext.preeditUCSString
-    return _composedString + representableString(ucsString: preedit)
+    return (isBufferingWord ? _commitString : "") + _composedString
+      + representableString(ucsString: preedit)
   }
 
   var originalString: String {
-    let preedit = inputContext.preeditUCSString
-    return _composedString + representableString(ucsString: preedit)
+    return composedString
   }
 
   var commitString: String {
-    return _commitString
+    return isBufferingWord ? "" : _commitString
   }
 
   var candidates: [NSAttributedString]? {
@@ -195,12 +197,15 @@ final class HangulComposer: NSObject, Composer {
 
   @discardableResult
   func dequeueCommitString() -> String {
+    guard !isBufferingWord else { return "" }
     let queuedCommitString = _commitString
     _commitString = ""
     return queuedCommitString
   }
 
   func cancelComposition() {
+    isBufferingWord = false
+    bufferedKeys.removeAll()
     let flushedString: String! = representableString(ucsString: inputContext.flushUCSString())
     _commitString.append(_composedString)
     _commitString.append(flushedString)
@@ -208,9 +213,50 @@ final class HangulComposer: NSObject, Composer {
   }
 
   func clearCompositionContext() {
+    isBufferingWord = false
+    bufferedKeys.removeAll()
     inputContext.reset()
     _commitString = ""
     _composedString = ""
+  }
+
+  func beginBufferedWord() {
+    isBufferingWord = true
+    bufferedKeys.removeAll()
+  }
+
+  func appendBufferedKey(
+    text: String?, key: KeyCode, modifiers: NSEvent.ModifierFlags,
+    client: IMKTextInput & IMKUnicodeTextInput
+  ) -> InputResult {
+    bufferedKeys.append((text, key, modifiers))
+    return input(text: text, key: key, modifiers: modifiers, client: client)
+  }
+
+  func deleteBufferedKey(client: IMKTextInput & IMKUnicodeTextInput) {
+    guard !bufferedKeys.isEmpty else { return }
+    bufferedKeys.removeLast()
+    let remaining = bufferedKeys
+    clearCompositionContext()
+    guard !remaining.isEmpty else { return }
+    beginBufferedWord()
+    for (text, key, modifiers) in remaining {
+      _ = appendBufferedKey(text: text, key: key, modifiers: modifiers, client: client)
+    }
+  }
+
+  func finishBufferedWord(replacingWith replacement: String? = nil) {
+    guard isBufferingWord else { return }
+    cancelComposition()
+    if let replacement { _commitString = replacement }
+  }
+
+  func prepareBufferedWordForSearch() {
+    guard isBufferingWord else { return }
+    _composedString = _commitString + _composedString
+    _commitString = ""
+    isBufferingWord = false
+    bufferedKeys.removeAll()
   }
 
   func composerSelected() {
