@@ -245,6 +245,21 @@ final class HangulComposer: NSObject, Composer {
     return result
   }
 
+  /// Two-set keeps libhangul's own Backspace semantics while a word is buffered.
+  var usesNativeBufferedBackspace: Bool { keyboardIdentifier == "2-full" }
+
+  /// Pops one jamo from the live libhangul context, like Backspace without buffering.
+  /// Returns the number of physical keys removed, or nil when no jamo is left to pop
+  /// (only completed syllables remain) so the caller can stop buffering.
+  func deleteBufferedKeyNatively(client: IMKTextInput & IMKUnicodeTextInput) -> Int? {
+    guard !bufferedKeys.isEmpty,
+      input(text: nil, key: .delete, modifiers: [], client: client).processed
+    else { return nil }
+    bufferedKeys.removeLast()
+    if bufferedKeys.isEmpty { clearCompositionContext() }
+    return 1
+  }
+
   @discardableResult
   func deleteBufferedKey(client: IMKTextInput & IMKUnicodeTextInput) -> Int {
     guard !bufferedKeys.isEmpty else { return 0 }

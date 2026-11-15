@@ -1106,8 +1106,8 @@ private final class UnreadableRomanInputClient: MockInputClient {
 
 class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
   private func app(
-    romanSource: GureumInputSource = .system, enabled: Bool = true, secure: Bool = false,
-    client: MockInputClient = MockInputClient()
+    romanSource: GureumInputSource = .system, hangulSource: GureumInputSource = .han3Final,
+    enabled: Bool = true, secure: Bool = false, client: MockInputClient = MockInputClient()
   ) -> VirtualApp {
     let app = ModerateApp(client: client)
     app.controller.receiver.romanAutocorrectionAvailable = { true }
@@ -1115,7 +1115,8 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
     app.controller.receiver.romanAutocorrectionKnownEnglishWord = { word in
       [
         "hello", "world", "swift", "apple", "paseo", "compact", "yes", "if", "or", "it",
-        "he", "me",
+        "he", "me", "github", "build", "foo", "key", "flag", "god", "then", "when", "dad", "ace",
+        "dir", "sys", "sudo", "todo", "goto",
       ]
       .contains(word.lowercased())
     }
@@ -1124,8 +1125,23 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
     }
     app.controller.setValue(
       romanSource.rawValue, forTag: kTextServiceInputModePropertyTag, client: app.client)
-    Configuration.shared.lastHangulInputMode = GureumInputSource.han3Final.rawValue
+    Configuration.shared.lastHangulInputMode = hangulSource.rawValue
     return app
+  }
+
+  private func twoSetApp(enabled: Bool = true) -> VirtualApp {
+    let app = app(hangulSource: .han2, enabled: enabled)
+    app.controller.receiver.selectsClientInputModeForLayoutChanges = { false }
+    return app
+  }
+
+  private func isRoman(_ app: VirtualApp) -> Bool {
+    app.controller.receiver.composer.delegate is RomanComposer
+  }
+
+  private func typeWord(_ app: VirtualApp, _ keys: String, boundary: String = " ") {
+    app.inputKeys(keys)
+    app.inputText(boundary, key: .space)
   }
 
   func testSuccessfulSebeolsikCompositionIsTheConversionCriterion() {
@@ -1408,6 +1424,233 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
       XCTAssertEqual(app.client.string, "apple ")
       XCTAssertEqual(app.controller.receiver.composer.inputMode, source.rawValue)
     }
+  }
+
+  // MARK: - Two-set (2-full) automatic switching
+
+  func testTwoSetRomanKeysConvertAtBoundaryAndSwitchTheInternalModeOnly() {
+    for (keys, expected) in [("dkssud", "안녕 "), ("rksk", "가나 ")] {
+      let app = twoSetApp()
+      typeWord(app, keys)
+      XCTAssertEqual(app.client.string, expected, keys)
+      XCTAssertEqual(app.controller.receiver.composer.inputMode, GureumInputSource.han2.rawValue)
+      XCTAssertFalse(isRoman(app))
+      XCTAssertTrue(app.client.selectedInputModeRequests.isEmpty)
+    }
+  }
+
+  func testTwoSetFollowingInputUsesTheRealModeAfterEachDecision() {
+    let app = twoSetApp()
+    typeWord(app, "dkssud")
+    typeWord(app, "rksk")
+    XCTAssertEqual(app.client.string, "안녕 가나 ")
+    XCTAssertFalse(isRoman(app))
+    typeWord(app, "apple")
+    XCTAssertEqual(app.client.string, "안녕 가나 apple ")
+    XCTAssertTrue(isRoman(app))
+    typeWord(app, "dkssud")
+    XCTAssertEqual(app.client.string, "안녕 가나 apple 안녕 ")
+    XCTAssertFalse(isRoman(app))
+  }
+
+  func testTwoSetKnownEnglishAndDomainsStayRoman() {
+    for word in ["hello", "swift", "paseo", "haezoom.com", "appleapple"] {
+      let app = twoSetApp()
+      typeWord(app, word)
+      XCTAssertEqual(app.client.string, word + " ", word)
+      XCTAssertTrue(isRoman(app), word)
+    }
+  }
+
+  func testTwoSetConversionIsConservative() {
+    for keys in ["dir", "sys", "xor", "qux", "TODO", "dks", "Dkssud", "dkssud1", "dkssud/", "rk"] {
+      XCTAssertNil(RomanLayoutAutocorrector.convert(keys, keyboard: "2-full"), keys)
+    }
+    XCTAssertEqual(RomanLayoutAutocorrector.convert("dkssud", keyboard: "2-full"), "안녕")
+    XCTAssertEqual(RomanLayoutAutocorrector.convert("rksk", keyboard: "2-full"), "가나")
+    XCTAssertEqual(RomanLayoutAutocorrector.convert("Rksk", keyboard: "2-full"), "까나")
+    XCTAssertEqual(RomanLayoutAutocorrector.convert("dkssud.", keyboard: "2-full"), "안녕.")
+    XCTAssertNil(RomanLayoutAutocorrector.convert("dk.ssud", keyboard: "2-full"))
+    // Words that happen to compose cleanly stay English because the checker knows them.
+    for word in ["sudo", "todo", "goto", "dad", "then", "when"] {
+      let app = twoSetApp()
+      typeWord(app, word)
+      XCTAssertEqual(app.client.string, word + " ", word)
+      XCTAssertTrue(isRoman(app), word)
+    }
+  }
+
+  func testCodeLikeTokensStayRomanInTwoSetAndThreeSet() {
+    for token in ["v2", "build.sh", "foo/bar", "--flag", "key=value", "main.swift"] {
+      for hangul in [GureumInputSource.han2, .han3Final] {
+        let app = app(hangulSource: hangul)
+        typeWord(app, token)
+        XCTAssertEqual(app.client.string, token + " ", token)
+        XCTAssertTrue(isRoman(app), token)
+      }
+    }
+    XCTAssertTrue(RomanLayoutAutocorrector.isCodeLikeToken("build.sh"))
+    XCTAssertTrue(RomanLayoutAutocorrector.isCodeLikeToken("--flag"))
+    XCTAssertTrue(RomanLayoutAutocorrector.isCodeLikeToken("key=value"))
+    XCTAssertFalse(RomanLayoutAutocorrector.isCodeLikeToken("jfshea"))
+    XCTAssertFalse(RomanLayoutAutocorrector.isCodeLikeToken("jdktq;/f"))
+  }
+
+  func testTwoSetBackspaceInRomanBufferDropsOnlyTheLastKey() {
+    let app = twoSetApp()
+    app.inputKeys("dkssudx")
+    app.inputDelete()
+    app.inputText(" ", key: .space)
+    XCTAssertEqual(app.client.string, "안녕 ")
+  }
+
+  func testTwoSetReverseCorrectionRestoresEnglishAndSwitchesToRoman() {
+    for word in ["apple", "Apple", "hello!", "appleapple", "haezoom.com"] {
+      let app = twoSetApp()
+      app.controller.receiver.composer.inputMode = GureumInputSource.han2.rawValue
+      app.inputKeys(word)
+      XCTAssertEqual(app.client.string, app.client.markedString(), word)
+      app.inputText(" ", key: .space)
+      XCTAssertEqual(app.client.string, word + " ", word)
+      XCTAssertTrue(isRoman(app), word)
+      XCTAssertTrue(app.client.selectedInputModeRequests.isEmpty)
+      typeWord(app, "world")
+      XCTAssertEqual(app.client.string, word + " world ")
+    }
+  }
+
+  func testTwoSetReverseCorrectionKeepsValidHangulAndEnglishLookalikes() {
+    // dkssud/rksk are Korean; then/when/dad/ace compose into complete or short Hangul.
+    for keys in ["dkssud", "rksk", "then", "when", "dad", "ace", "if", "or", "it", "he", "me"] {
+      let app = twoSetApp()
+      app.controller.receiver.composer.inputMode = GureumInputSource.han2.rawValue
+      app.inputKeys(keys)
+      let original = app.client.string
+      app.inputText(" ", key: .space)
+      XCTAssertEqual(app.client.string, original + " ", keys)
+      XCTAssertFalse(isRoman(app), keys)
+    }
+  }
+
+  func testTwoSetReverseBackspaceReplacesTheLastKeyOfTheEnglishWord() {
+    let app = twoSetApp()
+    app.controller.receiver.composer.inputMode = GureumInputSource.han2.rawValue
+    app.inputKeys("applx")
+    app.inputDelete()
+    app.inputKeys("e")
+    app.inputText(" ", key: .space)
+    XCTAssertEqual(app.client.string, "apple ")
+    XCTAssertTrue(isRoman(app))
+  }
+
+  func testTwoSetBufferedBackspaceMatchesUnbufferedBackspaceAtEveryStep() {
+    enum Step {
+      case keys(String)
+      case delete
+    }
+    let scripts: [[Step]] = [
+      [.keys("rksk"), .delete, .delete, .delete, .delete],
+      [.keys("dkssud"), .delete, .delete, .delete, .delete, .delete, .delete, .delete],
+      [.keys("ekfrrhrl"), .delete, .delete, .delete, .delete, .delete],
+      [.keys("dlTdj"), .delete, .delete, .keys("dj"), .delete, .delete, .delete],
+      [.keys("rkrt"), .keys("k"), .delete, .delete, .delete],
+      [.keys("rk."), .delete, .delete, .delete],
+      [.keys("rksk"), .delete, .keys("k"), .delete, .delete],
+    ]
+    for script in scripts {
+      let buffered = twoSetApp(enabled: true)
+      let native = twoSetApp(enabled: false)
+      for app in [buffered, native] {
+        app.controller.receiver.composer.inputMode = GureumInputSource.han2.rawValue
+      }
+      var trace: [String] = []
+      for step in script {
+        for app in [buffered, native] {
+          switch step {
+          case .keys(let keys): app.inputKeys(keys)
+          case .delete: app.inputDelete()
+          }
+        }
+        trace.append(buffered.client.string)
+        XCTAssertEqual(buffered.client.string, native.client.string, "\(script) \(trace)")
+      }
+      XCTAssertTrue(buffered.controller.receiver.composer.delegate is HangulComposer)
+    }
+  }
+
+  func testTwoSetBackspaceAfterDeletingCompletedSyllablesDoesNotConvertTheWord() {
+    let app = twoSetApp()
+    app.controller.receiver.composer.inputMode = GureumInputSource.han2.rawValue
+    app.inputKeys("appleapple")
+    app.inputDelete()
+    app.inputDelete()
+    app.inputDelete()
+    app.inputKeys("x")
+    let original = app.client.string
+    app.inputText(" ", key: .space)
+    XCTAssertEqual(app.client.string, original + " ")
+  }
+
+  // MARK: - English prefix with a Hangul suffix
+
+  func testEnglishPrefixWithTwoSetSuffixSplitsAtTheBoundary() {
+    let app = twoSetApp()
+    typeWord(app, "githubdptj")
+    XCTAssertEqual(app.client.string, "github에서 ")
+    XCTAssertEqual(app.controller.receiver.composer.inputMode, GureumInputSource.han2.rawValue)
+    XCTAssertFalse(isRoman(app))
+    XCTAssertTrue(app.client.selectedInputModeRequests.isEmpty)
+    typeWord(app, "dkssud")
+    XCTAssertEqual(app.client.string, "github에서 안녕 ")
+  }
+
+  func testEnglishPrefixWithThreeSetSuffixSplitsAtTheBoundary() {
+    let app = app()
+    app.controller.receiver.selectsClientInputModeForLayoutChanges = { false }
+    typeWord(app, "githubjcnt")
+    XCTAssertEqual(app.client.string, "github에서 ")
+    XCTAssertTrue(app.controller.receiver.composer.inputMode.hasSuffix("han3final"))
+    XCTAssertFalse(isRoman(app))
+    XCTAssertTrue(app.client.selectedInputModeRequests.isEmpty)
+  }
+
+  func testMixedTokenSplitCoversCaseAndNeverDuplicatesText() {
+    let app = twoSetApp()
+    app.inputKeys("Githubdptj")
+    XCTAssertEqual(app.client.string, app.client.markedString())
+    app.inputText(" ", key: .space)
+    XCTAssertEqual(app.client.string, "Github에서 ")
+    XCTAssertEqual(app.client.markedString(), "")
+  }
+
+  func testMixedTokenSplitLeavesAmbiguousAndEnglishTokensAlone() {
+    for hangul in [GureumInputSource.han2, .han3Final] {
+      // github alone, code tokens and a known-English "suffix" keep the original text.
+      for token in ["github", "github.com", "githubthen", "build.sh", "foo/bar", "key=value"] {
+        let app = app(hangulSource: hangul)
+        typeWord(app, token)
+        XCTAssertEqual(app.client.string, token + " ", "\(hangul) \(token)")
+        XCTAssertTrue(isRoman(app), token)
+      }
+    }
+    // Whole-token Hangul wins over a split: god + 복 would otherwise become "god복".
+    let app = twoSetApp()
+    typeWord(app, "godqhr")
+    XCTAssertEqual(app.client.string, "행복 ")
+    // A prefix that is not a known word, or a suffix that does not compose, is not split.
+    for token in ["gitxubdptj", "githubdptjy", "githubdp"] {
+      let app = twoSetApp()
+      typeWord(app, token)
+      XCTAssertEqual(app.client.string, token + " ", token)
+      XCTAssertTrue(isRoman(app), token)
+    }
+  }
+
+  func testMixedTokenSplitRespectsSecureInput() {
+    let app = app(hangulSource: .han2, secure: true)
+    typeWord(app, "githubdptj")
+    XCTAssertEqual(app.client.string, "githubdptj ")
+    XCTAssertTrue(isRoman(app))
   }
 
   func testReverseWordRemainsAvailableToHanjaSearch() {

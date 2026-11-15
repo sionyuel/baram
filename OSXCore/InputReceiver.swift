@@ -17,7 +17,14 @@ let debugInputReceiver = false
 enum RomanLayoutAutocorrector {
   private static let sentencePunctuation = CharacterSet(charactersIn: ".,!?;:'\"()~…“”‘’")
   private static let supportedHangulKeyboards: Set<String> = [
-    "3f", "39", "3fs", "39s", "3s", "32", "3gs", "3-2011", "3-2012", "ahn",
+    "2-full", "3f", "39", "3fs", "39s", "3s", "32", "3gs", "3-2011", "3-2012", "ahn",
+  ]
+  /// Two-set Shift only changes these keys (ㅃㅉㄸㄲㅆㅒㅖ). Any other capital letter is an
+  /// English-looking token, not Hangul that was deliberately shifted.
+  private static let twoSetShiftedKeys = Set("QWERTOP")
+  private static let codeFileExtensions: Set<String> = [
+    "c", "cpp", "css", "go", "h", "html", "js", "json", "lock", "log", "md", "plist", "py",
+    "rb", "rs", "sh", "swift", "toml", "ts", "txt", "xml", "yaml", "yml",
   ]
   private static let commonTopLevelDomains: Set<String> = [
     "ai", "app", "biz", "cloud", "co", "com", "dev", "info", "io", "kr", "me", "net",
@@ -63,9 +70,43 @@ enum RomanLayoutAutocorrector {
     }
   }
 
-  static func convert(_ keys: String, keyboard: String) -> String? {
-    guard supportsHangulKeyboard(keyboard), (3...64).contains(keys.count),
+  static func isTwoSet(_ keyboard: String) -> Bool { keyboard == "2-full" }
+
+  /// Tokens that read as code, paths or flags. They stay English in both directions of the
+  /// shared rules; the keyboard-specific composition rules reject the rest (digits, `/`, `.sh`).
+  /// Only characters that no supported three-set layout needs for ordinary Hangul are listed.
+  static func isCodeLikeToken(_ output: String) -> Bool {
+    if output.hasPrefix("-") || output.contains("=") { return true }
+    let parts = output.lowercased().split(separator: ".", omittingEmptySubsequences: false)
+    if parts.count == 2, !parts[0].isEmpty, let ext = parts.last,
+      codeFileExtensions.contains(String(ext)),
+      parts[0].unicodeScalars.allSatisfy({
+        (48...57).contains($0.value) || (97...122).contains($0.value) || $0.value == 45
+          || $0.value == 95
+      })
+    {
+      return true
+    }
+    return false
+  }
+
+  private static func isHangulSyllable(_ scalar: Unicode.Scalar) -> Bool {
+    (0xAC00...0xD7A3).contains(scalar.value)
+  }
+
+  /// `minimumSyllables` is 1 for three-set (existing behavior) and 2 for two-set: a single
+  /// CVC English-looking token such as `wit` or `dir` can compose into one valid syllable by
+  /// accident, while two clean syllables rarely do.
+  static func convert(
+    _ keys: String, keyboard: String, minimumKeys: Int = 3, minimumSyllables: Int? = nil
+  ) -> String? {
+    let twoSet = isTwoSet(keyboard)
+    guard supportsHangulKeyboard(keyboard), (minimumKeys...64).contains(keys.count),
       keys.unicodeScalars.allSatisfy({ (33...126).contains($0.value) }),
+      !twoSet
+        || keys.unicodeScalars.allSatisfy({
+          !(65...90).contains($0.value) || twoSetShiftedKeys.contains(Character($0))
+        }),
       let context = HGInputContext(keyboardIdentifier: keyboard)
     else { return nil }
     context.setOption(HANGUL_IC_OPTION_AUTO_REORDER, value: false)
@@ -80,9 +121,62 @@ enum RomanLayoutAutocorrector {
         (0xAC00...0xD7A3).contains($0.value) || sentencePunctuation.contains($0)
       })
     else { return nil }
+    let syllables = result.unicodeScalars.filter(isHangulSyllable).count
+    guard syllables >= (minimumSyllables ?? (twoSet ? 2 : 1)) else { return nil }
+    if twoSet {
+      // Two-set punctuation keys are literal; only a trailing run is a sentence ending.
+      var sawPunctuation = false
+      for scalar in result.unicodeScalars {
+        if isHangulSyllable(scalar) {
+          if sawPunctuation { return nil }
+        } else {
+          sawPunctuation = true
+        }
+      }
+    }
     return result
   }
 
+  /// English prefix + Hangul suffix inside one token (`githubdptj` -> `github에서`).
+  /// Whole-token English or Hangul always wins; a split is used only when exactly one split
+  /// point has a known English prefix and a suffix that composes into complete syllables.
+  static func convertEnglishPrefixWithHangulSuffix(
+    keys: String, roman: String, keyboard: String, isKnownWord: (String) -> Bool
+  ) -> String? {
+    let minimumPrefix = 3
+    let minimumSuffix = 3
+    guard supportsHangulKeyboard(keyboard), keys.count == roman.count,
+      keys.count >= minimumPrefix + minimumSuffix, keys.count <= 64,
+      !isCodeLikeToken(roman),
+      !isKnownEnglishExpression(roman, isKnownWord: isKnownWord),
+      convert(keys, keyboard: keyboard) == nil
+    else { return nil }
+    func isLetters(_ word: String) -> Bool {
+      !word.isEmpty
+        && word.unicodeScalars.allSatisfy {
+          (65...90).contains($0.value) || (97...122).contains($0.value)
+        }
+    }
+    // NSSpellChecker knows "Github" but not "github"; treat the proper-noun spelling as known.
+    func isKnownPrefix(_ word: String) -> Bool {
+      isKnownWord(word) || (word == word.lowercased() && isKnownWord(word.capitalized))
+    }
+    if isLetters(roman), isKnownPrefix(roman) { return nil }
+    var matches: [String] = []
+    for split in minimumPrefix...(keys.count - minimumSuffix) {
+      let keyIndex = keys.index(keys.startIndex, offsetBy: split)
+      let romanIndex = roman.index(roman.startIndex, offsetBy: split)
+      let prefix = String(roman[..<romanIndex])
+      let romanSuffix = String(roman[romanIndex...])
+      guard isLetters(prefix), isKnownPrefix(prefix),
+        !(isLetters(romanSuffix) && isKnownPrefix(romanSuffix)),
+        let suffix = convert(String(keys[keyIndex...]), keyboard: keyboard),
+        let first = suffix.unicodeScalars.first, isHangulSyllable(first)
+      else { continue }
+      matches.append(prefix + suffix)
+    }
+    return matches.count == 1 ? matches[0] : nil
+  }
 }
 
 enum AutomaticLayoutChangeDirection {
@@ -198,12 +292,19 @@ public class InputReceiver: InputTextDelegate {
         (0x1100...0x11FF).contains($0.value) || (0x3130...0x318F).contains($0.value)
       }
       let isDomain = RomanLayoutAutocorrector.isDomainExpression(bufferedHangulRomanOutput)
+      // Two-set composes far more English words into plausible Hangul than three-set, so it
+      // needs visible incomplete jamo as evidence (domains included) and 4+ letter words.
+      let twoSet = RomanLayoutAutocorrector.isTwoSet(hangul.keyboardIdentifier)
       let eligible =
-        isDomain
-        || (!candidates.isEmpty
-          && candidates.allSatisfy {
-            $0.count >= 4 || ($0.count == 3 && hasJamo)
-          })
+        twoSet
+        ? hasJamo
+          && (isDomain
+            || (!candidates.isEmpty && candidates.allSatisfy { $0.count >= 4 }))
+        : isDomain
+          || (!candidates.isEmpty
+            && candidates.allSatisfy {
+              $0.count >= 4 || ($0.count == 3 && hasJamo)
+            })
       let converted =
         eligible
           && RomanLayoutAutocorrector.isKnownEnglishExpression(
@@ -221,6 +322,22 @@ public class InputReceiver: InputTextDelegate {
         _ = input(event: .changeLayout(.roman, false), client: client)
       }
       return InputResult(processed: false, action: .commit)
+    }
+    if key == .delete, hangul.isBufferingWord, hangul.usesNativeBufferedBackspace {
+      // Two-set carries final consonants into the next syllable, so replaying keys cannot
+      // reproduce libhangul's own Backspace (`rksk` -> 가ㄴ, not 간). Use the live context while
+      // it still has jamo; once only whole syllables remain, stop buffering and let the normal
+      // Backspace delete them, exactly as without autocorrection.
+      if let removedKeys = hangul.deleteBufferedKeyNatively(client: client) {
+        bufferedHangulRomanOutput.removeLast(min(removedKeys, bufferedHangulRomanOutput.count))
+        if !hangul.isBufferingWord {
+          bufferedHangulClient = nil
+          bufferedHangulStartLocation = nil
+        }
+        return .processed
+      }
+      resetHangulAutocorrection()
+      return nil
     }
     if key == .delete, hangul.isBufferingWord {
       let removedKeys = hangul.deleteBufferedKey(client: client)
@@ -333,9 +450,13 @@ public class InputReceiver: InputTextDelegate {
       guard roman.hasBufferedWord else { return nil }
       let isKnownEnglish = RomanLayoutAutocorrector.isKnownEnglishExpression(
         roman.composedString, isKnownWord: romanAutocorrectionKnownEnglishWord)
-      let converted =
-        isKnownEnglish
-        ? nil : RomanLayoutAutocorrector.convert(roman.bufferedPhysicalKeys, keyboard: keyboard)
+      let converted: String? =
+        isKnownEnglish || RomanLayoutAutocorrector.isCodeLikeToken(roman.composedString)
+        ? nil
+        : RomanLayoutAutocorrector.convert(roman.bufferedPhysicalKeys, keyboard: keyboard)
+          ?? RomanLayoutAutocorrector.convertEnglishPrefixWithHangulSuffix(
+            keys: roman.bufferedPhysicalKeys, roman: roman.composedString, keyboard: keyboard,
+            isKnownWord: romanAutocorrectionKnownEnglishWord)
       pendingRomanCommitReplacementRange = Self.bufferedRomanReplacementRange(
         markedRange: client.markedRange(), bufferedStartLocation: bufferedRomanStartLocation,
         selectionRange: client.selectedRange(),
