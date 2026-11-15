@@ -13,6 +13,16 @@ import InputMethodKit
 
 let debugInputReceiver = false
 
+/// Observed technical terms that system spelling dictionaries may omit. This supplies only
+/// word evidence; callers retain automatic-conversion eligibility and ownership checks.
+enum BuiltInTechnicalTermLexicon {
+  private static let terms: Set<String> = ["github", "tailscale"]
+
+  static func contains(_ word: String) -> Bool {
+    terms.contains(word.lowercased())
+  }
+}
+
 /// Converts an input-method-owned physical key sequence without inspecting document text.
 enum RomanLayoutAutocorrector {
   private static let sentencePunctuation = CharacterSet(charactersIn: ".,!?;:'\"()~…“”‘’")
@@ -42,7 +52,7 @@ enum RomanLayoutAutocorrector {
   private static func isKnownEnglishWord(
     _ word: String, isKnownWord: (String) -> Bool
   ) -> Bool {
-    word.lowercased() == "github" || isKnownWord(word)
+    BuiltInTechnicalTermLexicon.contains(word) || isKnownWord(word)
   }
 
   static func isKnownEnglishExpression(
@@ -169,8 +179,8 @@ enum RomanLayoutAutocorrector {
           (65...90).contains($0.value) || (97...122).contains($0.value)
         }
     }
-    // Keep the documented GitHub example stable across macOS dictionaries. This only
-    // supplies prefix evidence; the suffix must still compose at a unique boundary.
+    // Built-in terms and system dictionaries supply prefix evidence; the suffix must
+    // still compose at a unique boundary.
     func isKnownPrefix(_ word: String) -> Bool {
       isKnownEnglishWord(word, isKnownWord: isKnownWord)
         || (word == word.lowercased() && isKnownWord(word.capitalized))
@@ -316,6 +326,8 @@ public class InputReceiver: InputTextDelegate {
       let hasJamo = original.unicodeScalars.contains {
         (0x1100...0x11FF).contains($0.value) || (0x3130...0x318F).contains($0.value)
       }
+      let hasHangul =
+        hasJamo || original.unicodeScalars.contains { (0xAC00...0xD7A3).contains($0.value) }
       let isDomain = RomanLayoutAutocorrector.isDomainExpression(bufferedHangulRomanOutput)
       // Two-set composes far more English words into plausible Hangul than three-set, so it
       // needs visible incomplete jamo as evidence (domains included) and 4+ letter words.
@@ -331,7 +343,7 @@ public class InputReceiver: InputTextDelegate {
               $0.count >= 4 || ($0.count == 3 && hasJamo)
             })
       let converted =
-        eligible
+        hasHangul && eligible
           && RomanLayoutAutocorrector.isKnownEnglishExpression(
             bufferedHangulRomanOutput, isKnownWord: romanAutocorrectionKnownEnglishWord)
         ? bufferedHangulRomanOutput : nil
@@ -404,6 +416,42 @@ public class InputReceiver: InputTextDelegate {
     let output =
       composer.romanComposer.map(text: text ?? physical, key: key, modifiers: modifiers)
       .map(String.init) ?? text ?? physical
+    let original = hangul.composedString
+    // A trailing dot is enough only for a substantial domain label whose Hangul
+    // composition is visibly incomplete. Vowel and consonant evidence excludes numeric
+    // and laughter runs; completed Korean sentence endings stay Korean.
+    if key == .ansiPeriod, output == ".",
+      (4...63).contains(bufferedHangulRomanOutput.count),
+      bufferedHangulRomanOutput.first != "-", bufferedHangulRomanOutput.last != "-",
+      bufferedHangulRomanOutput.unicodeScalars.allSatisfy({
+        (48...57).contains($0.value) || (65...90).contains($0.value)
+          || (97...122).contains($0.value) || $0.value == 45
+      }),
+      bufferedHangulRomanOutput.lowercased().contains(where: { "aeiou".contains($0) }),
+      bufferedHangulRomanOutput.lowercased().contains(where: {
+        "bcdfghjklmnpqrstvwxyz".contains($0)
+      }),
+      original.unicodeScalars.contains(where: {
+        (0x1100...0x11FF).contains($0.value) || (0x3130...0x318F).contains($0.value)
+      }),
+      let range = Self.bufferedRomanReplacementRange(
+        markedRange: client.markedRange(), bufferedStartLocation: bufferedHangulStartLocation,
+        selectionRange: client.selectedRange(), composedUTF16Length: (original as NSString).length)
+    {
+      let converted = bufferedHangulRomanOutput + "."
+      let previousMode = composer.inputMode
+      pendingRomanCommitReplacementRange = range
+      hangul.finishBufferedWord(replacingWith: converted)
+      bufferedHangulClient = nil
+      bufferedHangulStartLocation = nil
+      bufferedHangulRomanOutput = ""
+      pendingAutomaticLayoutChange = .roman
+      _ = input(event: .changeLayout(.roman, false), client: client)
+      rememberAutomaticConversion(
+        original: original + ".", converted: converted, start: range.location,
+        previousMode: previousMode, boundaryKey: key, client: client)
+      return .processed
+    }
     bufferedHangulRomanOutput += output
     let result = hangul.appendBufferedKey(
       text: text, key: key, modifiers: modifiers, client: client)
@@ -679,11 +727,13 @@ public class InputReceiver: InputTextDelegate {
     case .space: boundary = " "
     case .return: boundary = "\n"
     case .tab: boundary = "\t"
+    case .ansiPeriod: boundary = ""
     default: return
     }
     automaticConversionUndo = AutomaticConversionUndo(
       client: client as AnyObject, original: original + boundary,
-      replacementRange: NSRange(location: start, length: (converted as NSString).length + 1),
+      replacementRange: NSRange(
+        location: start, length: (converted as NSString).length + (boundary as NSString).length),
       previousMode: previousMode, convertedMode: composer.inputMode)
   }
 

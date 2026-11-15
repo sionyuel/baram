@@ -10,6 +10,7 @@ import AppKit
 import Hangul
 import InputMethodKit
 import MASShortcut
+import QuartzCore
 import XCTest
 
 @testable import Gureum
@@ -1091,6 +1092,15 @@ private final class HUDInputClient: MockInputClient {
   override func selectedRange() -> NSRange { NSRange(location: NSNotFound, length: 0) }
 }
 
+private final class HUDTestPanel: NSPanel {
+  var orderOutCount = 0
+
+  override func orderOut(_ sender: Any?) {
+    orderOutCount += 1
+    super.orderOut(sender)
+  }
+}
+
 private final class UnreadableRomanInputClient: MockInputClient {
   override func attributedSubstring(from range: NSRange) -> NSAttributedString! { nil }
 
@@ -1357,6 +1367,72 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
     XCTAssertTrue(RomanLayoutAutocorrector.isKnownEnglishExpression("GitHub") { _ in false })
   }
 
+  func testReverseCorrectionPreservesLiteralThreeSetDigits() {
+    let app = app()
+    app.controller.receiver.romanAutocorrectionKnownEnglishWord = { $0 == "YYYY" }
+    app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    app.inputKeys("YYYY")
+    XCTAssertEqual(app.client.string, "5555")
+
+    app.inputText(" ", key: .space)
+
+    XCTAssertEqual(app.client.string, "5555 ")
+    XCTAssertFalse(isRoman(app))
+  }
+
+  func testBuiltInTechnicalTermsSupplyCaseInsensitiveEnglishEvidence() {
+    for word in ["github", "GitHub", "tailscale", "Tailscale", "TAILSCALE"] {
+      XCTAssertTrue(RomanLayoutAutocorrector.isKnownEnglishExpression(word) { _ in false }, word)
+    }
+    for word in ["kube", "aws", "tailscalex"] {
+      XCTAssertFalse(RomanLayoutAutocorrector.isKnownEnglishExpression(word) { _ in false }, word)
+    }
+  }
+
+  func testReverseCorrectionRestoresTailscaleAndImmediateBackspaceRestoresHangul() {
+    Configuration.shared.hangulAutoReorder = true
+    let app = app()
+    app.controller.receiver.romanAutocorrectionKnownEnglishWord = { _ in false }
+    let previousMode = GureumInputSource.han3Final.rawValue
+    app.controller.receiver.composer.inputMode = previousMode
+    app.inputKeys("tailscale")
+    let original = app.client.string
+    XCTAssertNotEqual(original, "tailscale")
+
+    app.inputText(" ", key: .space)
+
+    XCTAssertEqual(app.client.string, "tailscale ")
+    XCTAssertTrue(isRoman(app))
+    XCTAssertTrue(app.inputDelete())
+    XCTAssertEqual(app.client.string, original + " ")
+    XCTAssertEqual(app.controller.receiver.composer.inputMode, previousMode)
+  }
+
+  func testTechnicalTermsPreserveTypedCasingInMixedTokens() {
+    for prefix in ["GitHub", "Tailscale", "TAILSCALE"] {
+      XCTAssertEqual(
+        RomanLayoutAutocorrector.convertEnglishPrefixWithHangulSuffix(
+          keys: prefix + "jcnt", roman: prefix + "jcnt", keyboard: "3f",
+          isKnownWord: { _ in false }),
+        prefix + "에서", prefix)
+    }
+  }
+
+  func testTechnicalTermEvidenceRespectsApplicationAndSecureInputGates() {
+    for (enabled, secure) in [(false, false), (true, true)] {
+      let app = app(enabled: enabled, secure: secure)
+      app.controller.receiver.romanAutocorrectionKnownEnglishWord = { _ in false }
+      app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+      app.inputKeys("tailscale")
+      let original = app.client.string
+
+      app.inputText(" ", key: .space)
+
+      XCTAssertEqual(app.client.string, original + " ")
+      XCTAssertFalse(isRoman(app))
+    }
+  }
+
   func testEnglishExpressionAllowsOpeningQuotesAndTrailingPunctuation() {
     for expression in ["hello;", "hello,", "\"hello\"", "'hello'", "(hello)", "“hello”", "‘hello’"]
     {
@@ -1475,6 +1551,75 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
     }
   }
 
+  func testDomainPrefixConvertsAtPeriodAndContinuesInRoman() {
+    for source in [GureumInputSource.han3Final, .han2] {
+      let app = app(hangulSource: source)
+      app.controller.receiver.selectsClientInputModeForLayoutChanges = { false }
+      app.controller.receiver.composer.inputMode = source.rawValue
+      app.inputKeys("haezoom.")
+      XCTAssertEqual(app.client.string, "haezoom.")
+      XCTAssertTrue(isRoman(app))
+      app.inputKeys("com")
+      XCTAssertEqual(app.client.string, "haezoom.com")
+    }
+  }
+
+  func testDomainPrefixImmediateBackspaceRestoresHangulAndPeriod() {
+    for source in [GureumInputSource.han3Final, .han2] {
+      let app = app(hangulSource: source)
+      app.controller.receiver.selectsClientInputModeForLayoutChanges = { false }
+      app.controller.receiver.composer.inputMode = source.rawValue
+      app.inputKeys("haezoom")
+      let original = app.client.string
+      app.inputKeys(".")
+      XCTAssertTrue(app.inputDelete())
+      XCTAssertEqual(app.client.string, original + ".")
+      XCTAssertEqual(app.controller.receiver.composer.inputMode, source.rawValue)
+      app.inputDelete()
+      XCTAssertEqual(app.client.string, original)
+    }
+  }
+
+  func testPeriodRequiresLongDomainLabelAndIncompleteJamo() {
+    for source in [GureumInputSource.han3Final, .han2] {
+      for keys in [
+        "abc.", "-haezoom.", "haezoom-.", "foo/haezoom.", "foo_haezoom.",
+        source == .han2 ? "dkssud." : "jfshea.",
+      ] {
+        let app = app(hangulSource: source)
+        app.controller.receiver.composer.inputMode = source.rawValue
+        let baseline = self.app(hangulSource: source, enabled: false)
+        baseline.controller.receiver.romanAutocorrectionAvailable = { false }
+        baseline.controller.receiver.composer.inputMode = source.rawValue
+        app.inputKeys(keys)
+        baseline.inputKeys(keys)
+        XCTAssertEqual(app.client.string, baseline.client.string, keys)
+        XCTAssertFalse(isRoman(app), keys)
+      }
+    }
+  }
+
+  func testPeriodRejectsLaughterNumericAndConsonantRuns() {
+    for source in [GureumInputSource.han3Final, .han2] {
+      for keys in ["0000.", "mmmm.", "1234.", "bcdf.", "aeiou."] {
+        let app = app(hangulSource: source)
+        app.controller.receiver.composer.inputMode = source.rawValue
+        let baseline = self.app(hangulSource: source, enabled: false)
+        baseline.controller.receiver.romanAutocorrectionAvailable = { false }
+        baseline.controller.receiver.composer.inputMode = source.rawValue
+        app.inputKeys(keys)
+        baseline.inputKeys(keys)
+        XCTAssertEqual(app.client.string, baseline.client.string, keys)
+        XCTAssertFalse(isRoman(app), keys)
+        if source == .han3Final, keys == "0000." {
+          XCTAssertEqual(app.client.string, "ㅋㅋㅋㅋ.")
+        } else if source == .han3Final, keys == "mmmm." {
+          XCTAssertEqual(app.client.string, "ㅎㅎㅎㅎ.")
+        }
+      }
+    }
+  }
+
   func testDomainLikeBrandNamesConvertWithoutDictionaryEntries() {
     XCTAssertTrue(
       RomanLayoutAutocorrector.isKnownEnglishExpression("haezoom.com") { _ in false })
@@ -1569,6 +1714,140 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
     XCTAssertFalse(hud.isVisible)
     hud.dismiss()
     RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.3))
+  }
+
+  func testHUDExitRetainsItsEndpointUntilThePanelOrdersOut() throws {
+    for reduceMotion in [false, true] {
+      let panel = HUDTestPanel()
+      let hud = AutomaticLayoutChangeHUD(panel: panel, reduceMotion: { reduceMotion })
+      let client = HUDInputClient()
+      hud.show(.hangul, client: client)
+      RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.08))
+      let layer = try XCTUnwrap(panel.contentView?.subviews.first?.layer)
+      let presentation = try XCTUnwrap(layer.presentation())
+      XCTAssertGreaterThan(presentation.opacity, 0)
+      XCTAssertLessThan(presentation.opacity, 1)
+      hud.dismiss()
+      RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.03))
+
+      let exit = try XCTUnwrap(
+        layer.animation(forKey: "automaticLayoutChangeExit") as? CAAnimationGroup)
+      XCTAssertFalse(exit.isRemovedOnCompletion)
+      XCTAssertEqual(exit.fillMode, .forwards)
+      XCTAssertEqual(exit.duration, reduceMotion ? 0.15 : 0.18)
+      XCTAssertEqual(layer.opacity, 1)
+      XCTAssertTrue(CATransform3DIsIdentity(layer.transform))
+      let animations = try XCTUnwrap(exit.animations as? [CABasicAnimation])
+      XCTAssertEqual(
+        animations.map(\.keyPath),
+        reduceMotion
+          ? ["opacity"]
+          : [
+            "opacity", "transform.translation.y",
+          ])
+      XCTAssertEqual(
+        try XCTUnwrap(animations[0].fromValue as? Float), presentation.opacity, accuracy: 0.1)
+      XCTAssertEqual(animations[0].toValue as? Int, 0)
+      if !reduceMotion {
+        // AppKit's unflipped backing layer uses negative Y for a downward exit.
+        XCTAssertLessThan(presentation.transform.m42, 0)
+        XCTAssertEqual(
+          try XCTUnwrap(animations[1].fromValue as? CGFloat), presentation.transform.m42,
+          accuracy: 1)
+        XCTAssertEqual(animations[1].toValue as? Int, -8)
+        var controlPoint: [Float] = [0, 0]
+        animations[0].timingFunction?.getControlPoint(at: 1, values: &controlPoint)
+        XCTAssertEqual(controlPoint, [0.4, 0])
+        animations[0].timingFunction?.getControlPoint(at: 2, values: &controlPoint)
+        XCTAssertEqual(controlPoint, [1, 1])
+      }
+      XCTAssertTrue(hud.isVisible)
+      XCTAssertEqual(panel.orderOutCount, 0)
+      hud.dismiss()
+      RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.3))
+      XCTAssertFalse(hud.isVisible)
+      XCTAssertEqual(panel.orderOutCount, 1)
+      XCTAssertNil(layer.animation(forKey: "automaticLayoutChangeExit"))
+      hud.dismiss()
+      RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.3))
+      XCTAssertEqual(panel.orderOutCount, 1)
+    }
+  }
+
+  func testHUDReplacementDuringExitContinuesFromItsPresentationState() throws {
+    let replacements: [(AutomaticLayoutChangeDirection, Bool)] = [
+      (.hangul, false), (.roman, false), (.hangul, true), (.roman, true),
+    ]
+    for (direction, reduceMotion) in replacements {
+      let panel = HUDTestPanel()
+      let hud = AutomaticLayoutChangeHUD(panel: panel, reduceMotion: { reduceMotion })
+      let client = HUDInputClient()
+      hud.show(.hangul, client: client)
+      RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.8))
+      hud.dismiss()
+      RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.09))
+      let layer = try XCTUnwrap(panel.contentView?.subviews.first?.layer)
+      let presentation = try XCTUnwrap(layer.presentation())
+      XCTAssertGreaterThan(presentation.opacity, 0)
+      XCTAssertLessThan(presentation.opacity, 1)
+      hud.show(direction, client: client)
+      RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
+      let fade = try XCTUnwrap(
+        layer.animation(forKey: "automaticLayoutChangeFadeIn") as? CABasicAnimation)
+      XCTAssertEqual(try XCTUnwrap(fade.fromValue as? Float), presentation.opacity, accuracy: 0.15)
+      if reduceMotion {
+        XCTAssertEqual(fade.duration, 0.15)
+        XCTAssertNil(layer.animation(forKey: "automaticLayoutChangeSpringIn"))
+      } else {
+        let spring = try XCTUnwrap(
+          layer.animation(forKey: "automaticLayoutChangeSpringIn") as? CASpringAnimation)
+        XCTAssertEqual(
+          try XCTUnwrap(spring.fromValue as? CGFloat), presentation.transform.m42, accuracy: 1.5)
+      }
+      XCTAssertNil(layer.animation(forKey: "automaticLayoutChangeExit"))
+      RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.3))
+      XCTAssertTrue(hud.isVisible)
+      XCTAssertEqual(panel.orderOutCount, 0)
+      hud.dismiss()
+      RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.3))
+      XCTAssertEqual(panel.orderOutCount, 1)
+    }
+  }
+
+  func testHUDKeepsItsEntrancePulseAndRestartedHold() throws {
+    let panel = HUDTestPanel()
+    let hud = AutomaticLayoutChangeHUD(panel: panel, reduceMotion: { false })
+    let client = HUDInputClient()
+    hud.show(.hangul, client: client)
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.03))
+    let layer = try XCTUnwrap(panel.contentView?.subviews.first?.layer)
+    let fade = try XCTUnwrap(
+      layer.animation(forKey: "automaticLayoutChangeFadeIn") as? CABasicAnimation)
+    XCTAssertEqual(fade.duration, 0.2)
+    XCTAssertEqual(fade.fromValue as? Float, 0)
+    let spring = try XCTUnwrap(
+      layer.animation(forKey: "automaticLayoutChangeSpringIn") as? CASpringAnimation)
+    XCTAssertEqual(spring.fromValue as? CGFloat, -12)
+    XCTAssertEqual(spring.duration, 0.732)
+    XCTAssertEqual(spring.mass, 1)
+    XCTAssertEqual(spring.stiffness, 449)
+    XCTAssertEqual(spring.damping, 31.4)
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 1.6))
+    hud.show(.hangul, client: client)
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.03))
+    let pulse = try XCTUnwrap(
+      layer.sublayers?.first?.animation(forKey: "automaticLayoutChangePulse")
+        as? CAKeyframeAnimation)
+    XCTAssertEqual(pulse.duration, 0.16)
+    XCTAssertEqual(pulse.values?.compactMap { ($0 as? NSNumber)?.doubleValue }, [1, 1.04, 1])
+    XCTAssertNil(layer.animation(forKey: "automaticLayoutChangeFadeIn"))
+    XCTAssertNil(layer.animation(forKey: "automaticLayoutChangeSpringIn"))
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.4))
+    XCTAssertTrue(hud.isVisible)
+    XCTAssertEqual(panel.orderOutCount, 0)
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 1.7))
+    XCTAssertFalse(hud.isVisible)
+    XCTAssertEqual(panel.orderOutCount, 1)
   }
 
   func testBaramInternalLayoutToggleDoesNotLeaveTheBaramInputSource() {
@@ -1697,7 +1976,13 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
       let app = twoSetApp()
       app.controller.receiver.composer.inputMode = GureumInputSource.han2.rawValue
       app.inputKeys(word)
-      XCTAssertEqual(app.client.string, app.client.markedString(), word)
+      if word == "haezoom.com" {
+        XCTAssertEqual(app.client.string, word)
+        XCTAssertEqual(app.client.markedString(), "com")
+        XCTAssertTrue(isRoman(app))
+      } else {
+        XCTAssertEqual(app.client.string, app.client.markedString(), word)
+      }
       app.inputText(" ", key: .space)
       XCTAssertEqual(app.client.string, word + " ", word)
       XCTAssertTrue(isRoman(app), word)

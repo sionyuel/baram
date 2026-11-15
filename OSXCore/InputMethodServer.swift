@@ -34,6 +34,7 @@ final class AutomaticLayoutChangeHUD {
   private let toastContainer: NSView
   private let pillView: NSView
   private let label: NSTextField
+  private let reduceMotion: () -> Bool
   private var hideWorkItem: DispatchWorkItem?
   private var lastAnnouncement: (message: String, time: TimeInterval)?
   private var presentationGeneration = 0
@@ -41,13 +42,21 @@ final class AutomaticLayoutChangeHUD {
 
   var isVisible: Bool { panel.isVisible }
 
-  private init() {
+  init(
+    panel suppliedPanel: NSPanel? = nil,
+    reduceMotion: @escaping () -> Bool = {
+      NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    }
+  ) {
+    self.reduceMotion = reduceMotion
     let panelSize = NSSize(
       width: Self.pillSize.width + Self.canvasInset.width * 2,
       height: Self.pillSize.height + Self.canvasInset.height * 2)
-    panel = AutomaticLayoutChangeHUDPanel(
-      contentRect: NSRect(origin: .zero, size: panelSize),
-      styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
+    panel =
+      suppliedPanel
+      ?? AutomaticLayoutChangeHUDPanel(
+        contentRect: NSRect(origin: .zero, size: panelSize),
+        styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
     panel.level = .floating
     panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
     panel.animationBehavior = .none
@@ -152,14 +161,14 @@ final class AutomaticLayoutChangeHUD {
     presentationGeneration += 1
     let generation = presentationGeneration
     let wasExiting = isExiting
-    if wasExiting {
-      resetToastLayer()
-      isExiting = false
-    }
+    let interruptedOpacity = wasExiting ? toastContainer.layer?.presentation()?.opacity : nil
+    let interruptedTranslation =
+      wasExiting ? toastContainer.layer?.presentation()?.transform.m42 : nil
+    isExiting = false
     let repeatsVisibleMessage = !wasExiting && panel.isVisible && label.stringValue == message
     label.stringValue = message
     let finalOrigin = origin(on: targetScreen(for: client))
-    let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    let reduceMotion = reduceMotion()
     panel.setFrameOrigin(finalOrigin)
 
     if repeatsVisibleMessage {
@@ -167,7 +176,9 @@ final class AutomaticLayoutChangeHUD {
     } else {
       resetToastLayer()
       panel.orderFrontRegardless()
-      animateEntrance(reduceMotion: reduceMotion)
+      animateEntrance(
+        reduceMotion: reduceMotion, fromOpacity: interruptedOpacity ?? 0,
+        fromTranslation: interruptedTranslation ?? -12)
     }
 
     let now = ProcessInfo.processInfo.systemUptime
@@ -187,10 +198,12 @@ final class AutomaticLayoutChangeHUD {
       deadline: .now() + Self.displayDuration(for: message), execute: workItem)
   }
 
-  private func animateEntrance(reduceMotion: Bool) {
+  private func animateEntrance(
+    reduceMotion: Bool, fromOpacity: Float, fromTranslation: CGFloat
+  ) {
     guard let layer = toastContainer.layer else { return }
     let fade = CABasicAnimation(keyPath: "opacity")
-    fade.fromValue = 0
+    fade.fromValue = fromOpacity
     fade.toValue = 1
     fade.duration = reduceMotion ? 0.15 : 0.2
     fade.timingFunction =
@@ -205,7 +218,7 @@ final class AutomaticLayoutChangeHUD {
     spring.stiffness = 449
     spring.damping = 31.4
     spring.initialVelocity = 0
-    spring.fromValue = -12
+    spring.fromValue = fromTranslation
     spring.toValue = 0
     spring.duration = Self.springDuration
     layer.add(spring, forKey: "automaticLayoutChangeSpringIn")
@@ -213,9 +226,12 @@ final class AutomaticLayoutChangeHUD {
 
   private func resetToastLayer() {
     guard let layer = toastContainer.layer else { return }
+    CATransaction.begin()
+    CATransaction.setDisableActions(true)
     layer.removeAllAnimations()
     layer.opacity = 1
     layer.transform = CATransform3DIdentity
+    CATransaction.commit()
   }
 
   private func pulse() {
@@ -233,14 +249,18 @@ final class AutomaticLayoutChangeHUD {
   }
 
   private func hide(generation: Int) {
-    guard generation == presentationGeneration else { return }
+    guard generation == presentationGeneration, panel.isVisible, !isExiting else { return }
     hideWorkItem = nil
     isExiting = true
-    let reduceMotion = NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    let reduceMotion = reduceMotion()
     guard let layer = toastContainer.layer else {
       panel.orderOut(nil)
+      isExiting = false
       return
     }
+    let presentation = layer.presentation()
+    let fromOpacity = presentation?.opacity ?? 1
+    let fromTranslation = presentation?.transform.m42 ?? 0
     layer.removeAllAnimations()
     let duration = reduceMotion ? 0.15 : 0.18
     let easing =
@@ -248,7 +268,7 @@ final class AutomaticLayoutChangeHUD {
       ? CAMediaTimingFunction(controlPoints: 0.25, 0.1, 0.25, 1)
       : CAMediaTimingFunction(controlPoints: 0.4, 0, 1, 1)
     let fade = CABasicAnimation(keyPath: "opacity")
-    fade.fromValue = 1
+    fade.fromValue = fromOpacity
     fade.toValue = 0
     fade.duration = duration
     fade.timingFunction = easing
@@ -256,7 +276,7 @@ final class AutomaticLayoutChangeHUD {
     var animations: [CAAnimation] = [fade]
     if !reduceMotion {
       let drop = CABasicAnimation(keyPath: "transform.translation.y")
-      drop.fromValue = 0
+      drop.fromValue = fromTranslation
       drop.toValue = -8
       drop.duration = duration
       drop.timingFunction = easing
@@ -265,6 +285,9 @@ final class AutomaticLayoutChangeHUD {
     let group = CAAnimationGroup()
     group.animations = animations
     group.duration = duration
+    // Hold the transparent endpoint until orderOut; removing it first reveals the visible model.
+    group.fillMode = .forwards
+    group.isRemovedOnCompletion = false
 
     CATransaction.begin()
     CATransaction.setCompletionBlock { [weak self] in

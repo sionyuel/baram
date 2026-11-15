@@ -73,6 +73,10 @@ Mac Studio와 MacBook에서 각각 수행합니다.
 - [ ] `사용하다 보면 `이 `사용하다 ;vies `로 바뀌지 않음
 - [ ] 자동 전환 직후 Backspace로 원문·이전 모드 복원, 두 번째 Backspace는 일반 삭제
 - [ ] 다른 입력·커서 이동·클라이언트 변경·보안 입력 뒤에는 직전 변환을 복원하지 않음
+- [ ] `haezoom.`에서 즉시 로마자 전환하고 `com`을 이어 입력
+- [ ] `tailscale ` 복원과 즉시 Backspace 취소
+- [ ] 세벌식 `5555`, `ㅋㅋㅋㅋ.`, `ㅎㅎㅎㅎ.` 보존
+- [ ] 토스트 자연 종료·빠른 취소·교체 시 깜빡임 없음
 
 ## 서명·공증 게이트
 
@@ -91,7 +95,7 @@ Mac Studio와 MacBook에서 각각 수행합니다.
 
 - [ ] 이름·상표·역사적 Baram 관계 문구 승인
 - [ ] Baram 마크·앱 아이콘 배포 라이선스 승인
-- [ ] GitHub prerelease와 `Baram-1.0.0-rc.4` 태그 생성
+- [ ] GitHub prerelease와 `Baram-1.0.0-rc.5` 태그 생성
 - [ ] ZIP/PKG/체크섬/대응 소스/릴리스 노트 업로드
 - [ ] `baram.sionyuel.com`의 HTTPS·DNS·호스팅 검증
 - [ ] 다운로드 URL과 SHA-256을 사이트에 연결
