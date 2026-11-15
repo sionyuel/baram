@@ -1,0 +1,9 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "baram-input-method",
+  "main": "site/baram/worker.js",
+  "compatibility_date": "2026-11-15",
+  "assets": { "directory": "./site/baram/dist", "binding": "ASSETS" },
+  "observability": { "enabled": true },
+  "routes": [{ "pattern": "baram.sionyuel.com", "custom_domain": true }]
+}

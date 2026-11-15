@@ -31,7 +31,7 @@
 - [ ] 앱 코드 서명 검증
 - [ ] 패키지 내부 `SHA256SUMS` 재검증
 - [ ] libhangul / libhangul-objc 대응 소스·라이선스 포함
-- [ ] `site/baram` build 및 비공개 preview 검증
+- [x] `site/baram` 공개 build 및 다운로드·경고·인덱싱 계약 검증
 
 ## 설치·복구
 
@@ -86,13 +86,13 @@ Mac Studio와 MacBook에서 각각 수행합니다.
 
 - [ ] 이름·상표·역사적 Baram 관계 문구 승인
 - [ ] Baram 마크·앱 아이콘 배포 라이선스 승인
-- [ ] GitHub Release와 `Baram-2.0.0` 태그 생성
+- [ ] GitHub prerelease와 `Baram-2.0.0-rc.1` 태그 생성
 - [ ] ZIP/PKG/체크섬/대응 소스/릴리스 노트 업로드
 - [ ] `baram.sionyuel.com`의 HTTPS·DNS·호스팅 검증
 - [ ] 다운로드 URL과 SHA-256을 사이트에 연결
 - [ ] 실제 릴리스보다 큰 버전만 알리는 `version.json` 배포
 - [ ] 배포된 피드 검증 뒤에만 `BaramUpdateFeedEnabled=true`
-- [ ] robots/noindex/download 비활성 게이트를 의도적으로 해제
+- [x] robots/noindex/download 비활성 게이트를 의도적으로 해제
 - [ ] SECURITY.md의 비공개 취약점 신고 경로 검증
 
 ## 중단·롤백 조건

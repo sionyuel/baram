@@ -9,7 +9,7 @@ VERSION=''
 ALLOW_DIRTY=false
 usage() {
     echo 'Usage: tools/package_baram.sh --version 2.0.0-rc.1 [--allow-dirty]'
-    echo 'Builds a local ad-hoc Universal Release candidate; does not install or publish.'
+    echo 'Builds an unsigned ad-hoc Universal prerelease candidate; does not install or publish.'
 }
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -50,7 +50,7 @@ verify_sources() {
 }
 verify_sources
 BUILD_TIME="$(date -u +%Y%m%dT%H%M%SZ)"
-PACKAGE_NAME="Baram-${VERSION}-LocalReleaseCandidate-universal-${SOURCE_COMMIT:0:12}-${BUILD_TIME}"
+PACKAGE_NAME="Baram-${VERSION}-unsigned-universal-${SOURCE_COMMIT:0:12}"
 PACKAGE_DIR="${DIST_DIR}/${PACKAGE_NAME}"
 ZIP_PATH="${PACKAGE_DIR}.zip"
 if [[ -e "$PACKAGE_DIR" || -e "$ZIP_PATH" || -e "${ZIP_PATH}.sha256" || \
@@ -126,7 +126,7 @@ INFO_PLIST="${BUILD_DIR}/build-info-${BUILD_TIME}.plist"
 /usr/bin/plutil -create xml1 "$INFO_PLIST"
 for entry in "sourceCommit:$SOURCE_COMMIT" "appVersion:$VERSION" "builtAtUTC:$BUILD_TIME" \
     'architecture:arm64 x86_64' 'minimumMacOS:12.0' 'configuration:Release' \
-    'signing:ad-hoc; no Developer ID' 'releaseChannel:local-release-candidate' \
+    'signing:ad-hoc; no Developer ID' 'releaseChannel:public-prerelease' \
     "buildTool:$(xcodebuild -version | tr '\n' ' ')"; do
     /usr/bin/plutil -insert "${entry%%:*}" -string "${entry#*:}" "$INFO_PLIST"
 done
@@ -143,5 +143,5 @@ cp "${BUILD_DIR}/SHA256SUMS" "${PACKAGE_DIR}/SHA256SUMS"
 (cd "$PACKAGE_DIR" && /usr/bin/shasum -a 256 --status -c SHA256SUMS)
 /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$PACKAGE_DIR" "$ZIP_PATH"
 (cd "$DIST_DIR" && /usr/bin/shasum -a 256 "${PACKAGE_NAME}.zip" > "${PACKAGE_NAME}.zip.sha256")
-echo "Local Release candidate: $ZIP_PATH"
+echo "Unsigned prerelease candidate: $ZIP_PATH"
 echo "Checksum: ${ZIP_PATH}.sha256"

@@ -19,6 +19,7 @@ Pods
 /build
 /dist
 /site/baram/dist/
+/.wrangler/
 
 # Junk files on Mac OS X
 *.DS_Store

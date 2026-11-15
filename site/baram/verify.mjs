@@ -12,8 +12,9 @@ if (new Set(ids).size !== ids.length) throw new Error("Duplicate HTML IDs.");
 if ((html.match(/<h1\b/g) ?? []).length !== 1) throw new Error("One primary heading is required.");
 if (!html.includes('<html lang="ko">')) throw new Error("Korean document language missing.");
 if (!html.includes('href="https://baram.sionyuel.com/"')) throw new Error("Canonical URL missing.");
-if (!html.includes('content="noindex, nofollow"')) throw new Error("Development robots metadata missing.");
-if (/<a\b[^>]*\bdownload\b|href="[^"]+\.(?:zip|pkg|dmg)"/i.test(html)) throw new Error("Public binary download present.");
+if (!html.includes('content="index, follow"')) throw new Error("Public robots metadata missing.");
+if (!html.includes("Baram-2.0.0-rc.1-unsigned-universal.zip")) throw new Error("Reviewed prerelease download missing.");
+if (!html.includes("Developer ID") || !html.includes("Apple 공증이 없습니다")) throw new Error("Unsigned release warning missing.");
 for (const match of html.matchAll(/(?:src|href)="([^"#][^"]*)"/g)) {
   if (/^(?:https?:|mailto:)/.test(match[1])) continue;
   await stat(path.join(output, match[1]));
@@ -30,4 +31,4 @@ for (const asset of JSON.parse(await readFile(path.join(output, "asset-provenanc
   if (actual !== asset.sha256) throw new Error(`Asset checksum differs: ${asset.file}`);
 }
 if (!css.includes("prefers-reduced-motion") || !css.includes(":focus-visible")) throw new Error("Motion/focus accessibility rules missing.");
-console.log("Baram static preview verified: anchors, assets, provenance, no public download, robots, focus and reduced motion.");
+console.log("Baram public site verified: anchors, assets, provenance, prerelease warning, robots, focus and reduced motion.");

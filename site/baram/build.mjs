@@ -22,9 +22,9 @@ for (const [name, source] of Object.entries(assetSources)) {
   provenance.push({ file: `assets/${name}`, source, sha256: createHash("sha256").update(content).digest("hex") });
 }
 const html = await readFile(path.join(output, "index.html"), "utf8");
-if (!html.includes('content="noindex, nofollow"') || html.includes('download="')) {
-  throw new Error("Development page must remain unindexed with no binary download.");
+if (!html.includes('content="index, follow"') || !html.includes("Baram-2.0.0-rc.1-unsigned-universal.zip")) {
+  throw new Error("Public page must be indexable and link the reviewed prerelease asset.");
 }
-await writeFile(path.join(output, "robots.txt"), "User-agent: *\nDisallow: /\n");
+await writeFile(path.join(output, "robots.txt"), "User-agent: *\nAllow: /\n");
 await writeFile(path.join(output, "asset-provenance.json"), `${JSON.stringify(provenance, null, 2)}\n`);
-console.log(`Built local Baram preview: ${output}`);
+console.log(`Built Baram public site: ${output}`);

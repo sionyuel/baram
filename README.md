@@ -6,7 +6,7 @@
 
 **Baram Input Method**는 macOS용 오픈소스 한글 입력기입니다. [구름 입력기](https://github.com/gureum/gureum)의 검증된 기반을 이어받아 세벌식 모아치기, 현대적인 설정 화면, 독립적인 브랜드와 업데이트 경로를 다듬고 있습니다.
 
-> 현재 상태: 개발자용 시험 빌드입니다. Apple Developer ID 서명·공증을 마친 공개 설치 파일은 아직 제공하지 않습니다.
+> 현재 상태: `2.0.0-rc.1` 공개 프리릴리스입니다. Universal Release 앱이지만 Apple Developer ID 서명·공증은 아직 없습니다.
 
 [![platform](https://img.shields.io/badge/macOS-12%2B-111827?logo=apple)](https://github.com/sionyuel/baram)
 [![architectures](https://img.shields.io/badge/architecture-Apple%20Silicon%20%7C%20Intel-458C80)](https://github.com/sionyuel/baram)
@@ -42,7 +42,9 @@ Backspace는 현재 조합 중인 음절을 자모 단위로 지우고, 앞에�
 
 ### 공개 배포
 
-정식 배포 주소는 [baram.sionyuel.com](https://baram.sionyuel.com)입니다. 현재는 서명·공증된 다운로드를 준비 중이며, 출처를 확인할 수 없는 재배포 파일 설치는 권장하지 않습니다.
+공식 배포 주소는 [baram.sionyuel.com](https://baram.sionyuel.com)입니다. `2.0.0-rc.1` 프리릴리스 ZIP과 SHA-256은 [GitHub Release](https://github.com/sionyuel/baram/releases/tag/Baram-2.0.0-rc.1)에서 함께 제공합니다. Developer ID 서명·Apple 공증이 없으므로 체크섬을 확인한 뒤 시험용으로 설치하고 기존 입력기를 남겨 두세요.
+
+압축을 푼 `Baram.app`을 `~/Library/Input Methods/`에 복사합니다. macOS가 차단하면 앱을 한 번 연 뒤 `시스템 설정 → 개인정보 보호 및 보안 → 확인 없이 열기`를 사용합니다. 보안 기능 전체를 끄거나 격리 속성을 강제로 제거하지 마세요.
 
 ### 소스에서 시험 빌드
 
@@ -106,9 +108,9 @@ tools/baram_input_source.sh activate han3final
 
 ## 업데이트
 
-Baram은 구름의 업데이트 서버를 사용하지 않습니다. 정식 버전은 `https://baram.sionyuel.com/version.json`의 독립 피드에서 확인하며, 설정에서 알림을 끌 수 있습니다. 공개 배포 전 시험 빌드에서는 업데이트 확인 자체를 비활성화합니다.
+Baram은 구름의 업데이트 서버를 사용하지 않습니다. 정식 버전은 `https://baram.sionyuel.com/version.json`의 독립 피드에서 확인하며, 설정에서 알림을 끌 수 있습니다. 서명·공증 전 공개 프리릴리스에서는 업데이트 확인 자체를 비활성화합니다.
 
-공개 버전은 `2.0.0`, 태그는 `Baram-2.0.0` 형식을 사용합니다. 현재 준비 상태는 [릴리스 체크리스트](docs/release/Baram-2.0.0-rc-checklist.md)에서 확인할 수 있습니다.
+현재 공개 프리릴리스는 `2.0.0-rc.1`, 태그는 `Baram-2.0.0-rc.1`입니다. 정식 버전은 `2.0.0`, 태그는 `Baram-2.0.0` 형식을 사용합니다. 현재 준비 상태는 [릴리스 체크리스트](docs/release/Baram-2.0.0-rc-checklist.md)에서 확인할 수 있습니다.
 
 ## 개발
 
@@ -118,7 +120,7 @@ Baram은 구름의 업데이트 서버를 사용하지 않습니다. 정식 버�
 tools/package_baram.sh --version 2.0.0-rc.1
 ```
 
-산출물은 `dist/` 아래에 생성되며 Release 앱, 체크섬, build-info, 라이선스와 libhangul 대응 소스를 포함합니다. 이 로컬 후보는 ad-hoc 서명이고 공증되지 않았으므로 공개 다운로드나 업데이트 피드에 연결하면 안 됩니다.
+산출물은 `dist/` 아래에 생성되며 Release 앱, 체크섬, build-info, 라이선스와 libhangul 대응 소스를 포함합니다. 공개 프리릴리스는 ad-hoc 서명이고 공증되지 않았음을 다운로드와 릴리스 노트에 명시하며, 자동 업데이트 피드에는 연결하지 않습니다.
 
 전체 테스트:
 
