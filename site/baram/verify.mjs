@@ -16,6 +16,7 @@ if (!html.includes('content="index, follow"')) throw new Error("Public robots me
 if (!html.includes("Baram-2.0.0-rc.1-unsigned-universal.zip")) throw new Error("Reviewed prerelease download missing.");
 if (!html.includes("Developer ID") || !html.includes("Apple 공증이 없습니다")) throw new Error("Unsigned release warning missing.");
 if (!html.includes("지원 세벌식 전용") || !html.includes("두벌식에는 적용되지 않습니다")) throw new Error("Physical chording scope is unclear.");
+if (!html.includes("세벌식 자동 한영 전환") || !html.includes("두벌식에는 자동 한영 전환을 적용하지 않습니다")) throw new Error("Automatic correction scope is unclear.");
 for (const match of html.matchAll(/(?:src|href)="([^"#][^"]*)"/g)) {
   if (/^(?:https?:|mailto:)/.test(match[1])) continue;
   await stat(path.join(output, match[1]));
