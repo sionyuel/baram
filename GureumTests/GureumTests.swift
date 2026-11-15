@@ -1087,6 +1087,10 @@ class GureumTests: XCTestCase {
   //    }
 }
 
+private final class HUDInputClient: MockInputClient {
+  override func selectedRange() -> NSRange { NSRange(location: NSNotFound, length: 0) }
+}
+
 private final class UnreadableRomanInputClient: MockInputClient {
   override func attributedSubstring(from range: NSRange) -> NSAttributedString! { nil }
 
@@ -1142,6 +1146,126 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
   private func typeWord(_ app: VirtualApp, _ keys: String, boundary: String = " ") {
     app.inputKeys(keys)
     app.inputText(boundary, key: .space)
+  }
+
+  func testImmediateBackspaceRestoresAutomaticConversionAndPreviousMode() {
+    for (boundary, key) in [(" ", KeyCode.space), ("\n", .return), ("\t", .tab)] {
+      for startsInHangul in [false, true] {
+        let app = app()
+        let previousMode =
+          startsInHangul
+          ? GureumInputSource.han3Final.rawValue : app.controller.receiver.composer.inputMode
+        app.controller.receiver.composer.inputMode = previousMode
+        app.inputKeys(startsInHangul ? "apple" : "jfshea")
+        let original = app.client.string
+        app.inputText(boundary, key: key)
+        XCTAssertNotEqual(app.client.string, original + boundary)
+
+        XCTAssertTrue(app.inputDelete())
+        XCTAssertEqual(app.client.string, original + boundary)
+        XCTAssertEqual(app.controller.receiver.composer.inputMode, previousMode)
+        app.inputDelete()
+        XCTAssertEqual(app.client.string, original)
+      }
+    }
+  }
+
+  func testConversionUndoDoesNotReplaceTextAfterCursorMoveOrExternalCommit() {
+    for externalCommit in [false, true] {
+      let app = app()
+      typeWord(app, "jfshea")
+      if externalCommit {
+        app.controller.commitComposition(app.client)
+      } else {
+        app.client.setSelectedRange(NSRange(location: 0, length: 0))
+      }
+      XCTAssertFalse(
+        app.controller.receiver.input(
+          text: "", key: .delete, modifiers: [], client: app.client
+        ).processed)
+      XCTAssertEqual(app.client.string, "안녕 ")
+    }
+  }
+
+  func testConversionUndoUsesUTF16RangeWithoutReadingTheDocument() {
+    let app = app(client: UnreadableRomanInputClient())
+    app.client.string = "🙂 앞 "
+    app.client.setSelectedRange(
+      NSRange(location: (app.client.string as NSString).length, length: 0))
+    typeWord(app, "jfshea")
+    app.inputDelete()
+    XCTAssertEqual(app.client.string, "🙂 앞 jfshea ")
+    XCTAssertTrue(isRoman(app))
+  }
+
+  func testConversionUndoExpiresAfterAnotherKeyOrSecureInput() {
+    for secure in [false, true] {
+      let app = app()
+      typeWord(app, "jfshea")
+      var undoCount = 0
+      app.controller.receiver.automaticLayoutChangeUndone = { undoCount += 1 }
+      if secure {
+        app.controller.receiver.romanAutocorrectionSecureInput = { true }
+      } else {
+        app.inputKeys("k")
+      }
+      app.inputDelete()
+      XCTAssertFalse(isRoman(app))
+      XCTAssertEqual(undoCount, 0)
+      XCTAssertFalse(app.client.string.contains("jfshea"))
+    }
+  }
+
+  func testConversionUndoRejectsAnotherClientAndMarkedSelection() {
+    for anotherClient in [false, true] {
+      let app = app()
+      typeWord(app, "jfshea")
+      let client = anotherClient ? MockInputClient() : app.client
+      if anotherClient {
+        client.string = "안녕 "
+        client.setSelectedRange(NSRange(location: 3, length: 0))
+      } else {
+        client.setMarkedText(
+          "안녕", selectionRange: NSRange(location: 2, length: 0),
+          replacementRange: NSRange(location: 0, length: 2))
+      }
+      _ = app.controller.receiver.input(text: "", key: .delete, modifiers: [], client: client)
+      XCTAssertFalse(client.string.contains("jfshea"))
+      XCTAssertFalse(isRoman(app))
+    }
+  }
+
+  func testConversionUndoRestoresItsExactModeAfterAnotherControllerChangesLastMode() {
+    for startsInHangul in [false, true] {
+      let app = app()
+      if startsInHangul {
+        app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+      }
+      let previousMode = app.controller.receiver.composer.inputMode
+      typeWord(app, startsInHangul ? "apple" : "jfshea")
+      Configuration.shared.lastHangulInputMode = GureumInputSource.han2.rawValue
+      Configuration.shared.lastRomanInputMode = GureumInputSource.dvorak.rawValue
+
+      XCTAssertTrue(app.inputDelete())
+      XCTAssertEqual(app.controller.receiver.composer.inputMode, previousMode)
+    }
+  }
+
+  func testConversionUndoRollsBackModeWhenLayoutTransitionChangesTheCaret() {
+    let app = app()
+    typeWord(app, "jfshea")
+    let convertedMode = app.controller.receiver.composer.inputMode
+    app.controller.receiver.selectsClientInputModeForLayoutChanges = {
+      app.client.setSelectedRange(NSRange(location: 0, length: 0))
+      return false
+    }
+
+    XCTAssertFalse(
+      app.controller.receiver.input(
+        text: "", key: .delete, modifiers: [], client: app.client
+      ).processed)
+    XCTAssertEqual(app.client.string, "안녕 ")
+    XCTAssertEqual(app.controller.receiver.composer.inputMode, convertedMode)
   }
 
   func testSuccessfulSebeolsikCompositionIsTheConversionCriterion() {
@@ -1434,6 +1558,17 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
     XCTAssertEqual(AutomaticLayoutChangeHUD.springProgress(at: 0), 0, accuracy: 0.001)
     XCTAssertEqual(AutomaticLayoutChangeHUD.springProgress(at: 0.131), 0.9, accuracy: 0.08)
     XCTAssertEqual(AutomaticLayoutChangeHUD.springProgress(at: 0.732), 1, accuracy: 0.01)
+  }
+
+  func testImmediateHUDDismissDoesNotLeaveAQueuedPresentationVisible() {
+    let hud = AutomaticLayoutChangeHUD.shared
+    let client = HUDInputClient()
+    hud.show(.hangul, client: client)
+    hud.dismiss()
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.4))
+    XCTAssertFalse(hud.isVisible)
+    hud.dismiss()
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.3))
   }
 
   func testBaramInternalLayoutToggleDoesNotLeaveTheBaramInputSource() {

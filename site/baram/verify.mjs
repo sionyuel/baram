@@ -13,7 +13,7 @@ if ((html.match(/<h1\b/g) ?? []).length !== 1) throw new Error("One primary head
 if (!html.includes('<html lang="ko">')) throw new Error("Korean document language missing.");
 if (!html.includes('href="https://baram.sionyuel.com/"')) throw new Error("Canonical URL missing.");
 if (!html.includes('content="index, follow"')) throw new Error("Public robots metadata missing.");
-if (!html.includes("Baram-1.0.0-rc.3-unsigned-universal.zip")) throw new Error("Reviewed prerelease download missing.");
+if (!html.includes("Baram-1.0.0-rc.4-unsigned-universal.zip")) throw new Error("Reviewed prerelease download missing.");
 if (!html.includes("Developer ID") || !html.includes("Apple 공증이 없습니다")) throw new Error("Unsigned release warning missing.");
 if (!html.includes("지원 세벌식 전용") || !html.includes("두벌식에는 적용되지 않습니다")) throw new Error("Physical chording scope is unclear.");
 if (!html.includes("두벌식 · 세벌식 · 실험 기능") || !html.includes("두벌식 옛글은 제외합니다") || html.includes("두벌식에는 자동 한영 전환을 적용하지 않습니다")) throw new Error("Automatic correction scope is unclear.");

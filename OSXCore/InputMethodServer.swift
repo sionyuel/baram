@@ -39,6 +39,8 @@ final class AutomaticLayoutChangeHUD {
   private var presentationGeneration = 0
   private var isExiting = false
 
+  var isVisible: Bool { panel.isVisible }
+
   private init() {
     let panelSize = NSSize(
       width: Self.pillSize.width + Self.canvasInset.width * 2,
@@ -124,6 +126,15 @@ final class AutomaticLayoutChangeHUD {
     }
   }
 
+  func dismiss() {
+    // Match show()'s queue so an immediate undo cannot be overtaken by its queued presentation.
+    DispatchQueue.main.async { [weak self] in
+      guard let self else { return }
+      self.hideWorkItem?.cancel()
+      self.hide(generation: self.presentationGeneration)
+    }
+  }
+
   private func present(
     _ direction: AutomaticLayoutChangeDirection,
     client: IMKTextInput & IMKUnicodeTextInput
@@ -131,10 +142,10 @@ final class AutomaticLayoutChangeHUD {
     let message: String
     switch direction {
     case .hangul:
-      message = "한글로 자동 전환됨"
+      message = "한글로 전환 · ⌫ 되돌리기"
       pillView.layer?.backgroundColor = Self.hangulColor.cgColor
     case .roman:
-      message = "영문으로 자동 전환됨"
+      message = "영문으로 전환 · ⌫ 되돌리기"
       pillView.layer?.backgroundColor = Self.romanColor.cgColor
     }
     hideWorkItem?.cancel()

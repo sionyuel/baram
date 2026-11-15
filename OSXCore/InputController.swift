@@ -139,6 +139,7 @@ public class InputController: IMKInputController {
         guard let client = receiver?.inputClient else { return }
         AutomaticLayoutChangeHUD.shared.show(direction, client: client)
       }
+      receiver.automaticLayoutChangeUndone = { AutomaticLayoutChangeHUD.shared.dismiss() }
     }
   }
 
