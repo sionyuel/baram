@@ -1,12 +1,12 @@
-# Baram 2.0.0 Release Candidate Checklist
+# Baram 1.0.0 Release Candidate Checklist
 
 이 문서는 Baram 첫 공개 릴리스 후보를 만드는 검증 기록입니다. 자동 테스트 통과와 공개 준비 완료를 혼동하지 않습니다. 각 후보마다 복사해 실제 결과·날짜·담당자를 기록합니다.
 
 ## 후보 정보
 
-- Version: `2.0.0-rc.N`
+- Version: `1.0.0-rc.N`
 - Source commit:
-- Tag candidate: `Baram-2.0.0-rc.N`
+- Tag candidate: `Baram-1.0.0-rc.N`
 - Built at UTC:
 - Xcode / macOS:
 - Package SHA-256:
@@ -86,7 +86,7 @@ Mac Studio와 MacBook에서 각각 수행합니다.
 
 - [ ] 이름·상표·역사적 Baram 관계 문구 승인
 - [ ] Baram 마크·앱 아이콘 배포 라이선스 승인
-- [ ] GitHub prerelease와 `Baram-2.0.0-rc.1` 태그 생성
+- [ ] GitHub prerelease와 `Baram-1.0.0-rc.1` 태그 생성
 - [ ] ZIP/PKG/체크섬/대응 소스/릴리스 노트 업로드
 - [ ] `baram.sionyuel.com`의 HTTPS·DNS·호스팅 검증
 - [ ] 다운로드 URL과 SHA-256을 사이트에 연결

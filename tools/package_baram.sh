@@ -8,7 +8,7 @@ DIST_DIR="${REPO_DIR}/dist"
 VERSION=''
 ALLOW_DIRTY=false
 usage() {
-    echo 'Usage: tools/package_baram.sh --version 2.0.0-rc.1 [--allow-dirty]'
+    echo 'Usage: tools/package_baram.sh --version 1.0.0-rc.1 [--allow-dirty]'
     echo 'Builds an unsigned ad-hoc Universal prerelease candidate; does not install or publish.'
 }
 while [[ $# -gt 0 ]]; do
@@ -20,7 +20,7 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9]+(\.[a-zA-Z0-9]+)*)?$ ]]; then
-    echo 'An explicit semantic version is required, for example --version 2.0.0-rc.1.' >&2
+    echo 'An explicit semantic version is required, for example --version 1.0.0-rc.1.' >&2
     exit 2
 fi
 SOURCE_COMMIT="$(git -C "$REPO_DIR" rev-parse HEAD)"

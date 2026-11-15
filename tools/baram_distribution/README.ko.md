@@ -1,4 +1,4 @@
-# Baram 2.0.0 프리릴리스
+# Baram 1.0.0 프리릴리스
 
 이 묶음은 Release 구성으로 빌드한 Apple Silicon·Intel Universal 앱입니다. Developer ID 서명과 Apple 공증은 없으며 ad-hoc 서명은 파일 무결성 검사만 제공합니다. 공개 시험용이며 자동 업데이트 피드에는 연결하지 않습니다.
 

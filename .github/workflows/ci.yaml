@@ -63,14 +63,14 @@ jobs:
           -sdk macosx -destination 'generic/platform=macOS'
           -derivedDataPath build/baram-release-ci
           -onlyUsePackageVersionsFromResolvedFile
-          GUREUM_VARIANT=BARAM VERSION=2.0.0-rc.0
+          GUREUM_VARIANT=BARAM VERSION=1.0.0-rc.0
           ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO
           REGISTER_APP_WITH_LAUNCH_SERVICES=NO
           CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO build
       - name: Verify Baram Release bundle contract
         run: >-
           tools/tests/test_baram_release_contract.sh
-          "$PWD/build/baram-release-ci/Build/Products/Release/Baram.app" 2.0.0-rc.0
+          "$PWD/build/baram-release-ci/Build/Products/Release/Baram.app" 1.0.0-rc.0
       - uses: actions/setup-node@v4
         with:
           node-version: 22

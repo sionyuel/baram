@@ -101,12 +101,12 @@ git diff --check
 
 필요하면 설치된 프로세스에 Xcode의 Attach to Process로 디버거를 연결할 수 있습니다. 입력기에서 멈춘 동안 디버거 조작용 입력도 막힐 수 있으므로 먼저 로그와 결정적 테스트로 재현하고, 디버깅 전에 ABC 같은 복구용 입력 소스를 준비하세요.
 
-Baram 정식 버전은 `2.0.0`부터 시작하며 릴리스 태그는 `Baram-2.0.0` 형식을 사용합니다. 서명·공증 전 시험 배포는 `Baram-2.0.0-rc.N` 프리릴리스로 공개하고, ad-hoc·미공증 상태를 명시합니다. 서명·공증된 파일, SHA-256, 릴리스 노트, 대응 소스와 라이선스 고지를 함께 준비한 뒤에만 업데이트 피드를 활성화합니다. 검증 항목은 [릴리스 체크리스트](docs/release/Baram-2.0.0-rc-checklist.md)에서 관리합니다.
+Baram은 구름과 식별자가 분리된 독립 제품이므로 정식 버전을 `1.0.0`부터 시작하며 릴리스 태그는 `Baram-1.0.0` 형식을 사용합니다. 서명·공증 전 시험 배포는 `Baram-1.0.0-rc.N` 프리릴리스로 공개하고, ad-hoc·미공증 상태를 명시합니다. 서명·공증된 파일, SHA-256, 릴리스 노트, 대응 소스와 라이선스 고지를 함께 준비한 뒤에만 업데이트 피드를 활성화합니다. 검증 항목은 [릴리스 체크리스트](docs/release/Baram-1.0.0-rc-checklist.md)에서 관리합니다.
 
 설치본을 바꾸지 않는 Universal Release Candidate는 깨끗한 작업 트리에서 명시적인 시험 버전으로 만듭니다.
 
 ```sh
-tools/package_baram.sh --version 2.0.0-rc.1
+tools/package_baram.sh --version 1.0.0-rc.1
 ```
 
 패키저는 Release Baram identity, 숨긴 내부 Roman, 비활성 업데이트 피드, arm64/x86_64, 직접 아이콘을 검증한 뒤 ad-hoc 서명 앱, 체크섬, build-info, 라이선스와 대응 소스를 `dist/`에 묶습니다. `--allow-dirty`는 로컬 패키저 검증에만 사용하며 그 산출물은 공개할 수 없습니다.

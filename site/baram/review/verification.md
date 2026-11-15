@@ -16,7 +16,7 @@
 | 접근성 | 한 개 주 제목·landmark·skip link·fieldset/legend·aria-pressed·polite 결과·native details/summary·3px focus-visible 확인 |
 | 테마 | 시스템→밝게→어둡게 버튼 전환 확인. 각 명시 테마로 스크린샷 생성 |
 | 동작 줄이기 | reduce emulation에서 scroll-behavior=auto, 예시 animation 억제 |
-| 공개 배포 상태 | `2.0.0-rc.1` ZIP 링크, robots Allow, index/follow. Developer ID·Apple 공증 없음과 자동 업데이트 비활성 표시 |
+| 공개 배포 상태 | `1.0.0-rc.1` ZIP 링크, robots Allow, index/follow. Developer ID·Apple 공증 없음과 자동 업데이트 비활성 표시 |
 | 외부 요청 | 글꼴·분석·스크립트 등 외부 리소스 요청 0개. 외부 이동은 명시적 링크만 |
 | 자산 | v0.3 원본 master/small SVG와 브랜드 토큰 복사, `dist/asset-provenance.json`에 원본 경로·SHA-256 기록 |
 | 제품 사실 | 독립 Gureum 기반·역사적 Baram 비공식 관계·macOS 목표·미공증 Debug 상태·실기 미검증·입력 관찰/진단 위험 구분 |
@@ -33,10 +33,10 @@
 ## 2026-11-15 공개 전환 검증
 
 - 지원 세벌식 전용 양방향 자동 전환, 도메인 복원, 현재 음절/완료 음절의 삭제 경계, 키·Shift 반응 미리보기와 방향별 1.8초 HUD를 반영했습니다.
-- 백업 검증·복구 절차 링크와 `Baram-2.0.0-rc.1` 프리릴리스 다운로드를 추가했습니다.
+- 백업 검증·복구 절차 링크와 `Baram-1.0.0-rc.1` 프리릴리스 다운로드를 추가했습니다.
 - `node site/baram/build.mjs`, `node site/baram/verify.mjs`, Worker JavaScript 구문, Wrangler dry-run, `git diff --check`가 통과했습니다.
 - Ego Lite로 1440×1000 데스크톱과 390×844 모바일 전체 페이지를 다시 확인했습니다. 두 폭 모두 수평 오버플로가 없고 다운로드·미공증 경고·설치·복구 문구가 잘리지 않았습니다.
 
-## 정식 2.0.0까지 남은 작업
+## 정식 1.0.0까지 남은 작업
 
 Developer ID·공증, 더 넓은 실기 권한·입력·복구 검증, 업데이트 피드 활성화가 남아 있습니다. VoiceOver 실기와 다른 브라우저·OS 글꼴 대체 조합도 정식판 전에 별도 확인합니다.
