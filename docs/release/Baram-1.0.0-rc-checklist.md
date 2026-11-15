@@ -77,6 +77,7 @@ Mac Studio와 MacBook에서 각각 수행합니다.
 - [ ] `tailscale ` 복원과 즉시 Backspace 취소
 - [ ] 세벌식 `5555`, `ㅋㅋㅋㅋ.`, `ㅎㅎㅎㅎ.` 보존
 - [ ] 토스트 자연 종료·빠른 취소·교체 시 깜빡임 없음
+- [ ] `ㅎㅎㅎㅎ `, `ㅋㅋㅋㅋ `, `ㅠㅠ `가 로마자로 역변환되지 않음
 
 ## 서명·공증 게이트
 
@@ -95,7 +96,7 @@ Mac Studio와 MacBook에서 각각 수행합니다.
 
 - [ ] 이름·상표·역사적 Baram 관계 문구 승인
 - [ ] Baram 마크·앱 아이콘 배포 라이선스 승인
-- [ ] GitHub prerelease와 `Baram-1.0.0-rc.5` 태그 생성
+- [ ] GitHub prerelease와 `Baram-1.0.0-rc.6` 태그 생성
 - [ ] ZIP/PKG/체크섬/대응 소스/릴리스 노트 업로드
 - [ ] `baram.sionyuel.com`의 HTTPS·DNS·호스팅 검증
 - [ ] 다운로드 URL과 SHA-256을 사이트에 연결

@@ -1380,6 +1380,22 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
     XCTAssertFalse(isRoman(app))
   }
 
+  func testReverseCorrectionPreservesRepeatedHangulJamoAtWhitespace() {
+    for keys in ["mmmm", "0000"] {
+      let app = app()
+      app.controller.receiver.romanAutocorrectionKnownEnglishWord = { _ in true }
+      app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+      app.inputKeys(keys)
+      let original = app.client.string
+      XCTAssertTrue(RomanLayoutAutocorrector.isRepeatedHangulJamoExpression(original), keys)
+
+      app.inputText(" ", key: .space)
+
+      XCTAssertEqual(app.client.string, original + " ", keys)
+      XCTAssertFalse(isRoman(app), keys)
+    }
+  }
+
   func testBuiltInTechnicalTermsSupplyCaseInsensitiveEnglishEvidence() {
     for word in ["github", "GitHub", "tailscale", "Tailscale", "TAILSCALE"] {
       XCTAssertTrue(RomanLayoutAutocorrector.isKnownEnglishExpression(word) { _ in false }, word)

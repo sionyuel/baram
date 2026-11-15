@@ -94,6 +94,16 @@ enum RomanLayoutAutocorrector {
 
   static func isTwoSet(_ keyboard: String) -> Bool { keyboard == "2-full" }
 
+  /// Repeated standalone jamo are common Korean chat expressions (`ㅎㅎㅎㅎ`, `ㅋㅋㅋㅋ`, `ㅠㅠ`).
+  /// Dictionary evidence for their physical keys must not turn them into Roman text.
+  static func isRepeatedHangulJamoExpression(_ output: String) -> Bool {
+    let scalars = Array(output.unicodeScalars)
+    guard scalars.count >= 2, let first = scalars.first,
+      (0x1100...0x11FF).contains(first.value) || (0x3130...0x318F).contains(first.value)
+    else { return false }
+    return scalars.dropFirst().allSatisfy { $0 == first }
+  }
+
   /// Tokens that read as code, paths or flags. They stay English in both directions of the
   /// shared rules; the keyboard-specific composition rules reject the rest (digits, `/`, `.sh`).
   /// Only characters that no supported three-set layout needs for ordinary Hangul are listed.
@@ -328,6 +338,8 @@ public class InputReceiver: InputTextDelegate {
       }
       let hasHangul =
         hasJamo || original.unicodeScalars.contains { (0xAC00...0xD7A3).contains($0.value) }
+      let isRepeatedHangulJamo =
+        RomanLayoutAutocorrector.isRepeatedHangulJamoExpression(original)
       let isDomain = RomanLayoutAutocorrector.isDomainExpression(bufferedHangulRomanOutput)
       // Two-set composes far more English words into plausible Hangul than three-set, so it
       // needs visible incomplete jamo as evidence (domains included) and 4+ letter words.
@@ -343,7 +355,7 @@ public class InputReceiver: InputTextDelegate {
               $0.count >= 4 || ($0.count == 3 && hasJamo)
             })
       let converted =
-        hasHangul && eligible
+        hasHangul && !isRepeatedHangulJamo && eligible
           && RomanLayoutAutocorrector.isKnownEnglishExpression(
             bufferedHangulRomanOutput, isKnownWord: romanAutocorrectionKnownEnglishWord)
         ? bufferedHangulRomanOutput : nil
