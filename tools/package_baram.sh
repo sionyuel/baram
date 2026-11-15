@@ -50,7 +50,7 @@ verify_sources() {
 }
 verify_sources
 BUILD_TIME="$(date -u +%Y%m%dT%H%M%SZ)"
-PACKAGE_NAME="Baram-${VERSION}-unsigned-universal-${SOURCE_COMMIT:0:12}"
+PACKAGE_NAME="Baram-${VERSION}-unsigned-universal"
 PACKAGE_DIR="${DIST_DIR}/${PACKAGE_NAME}"
 ZIP_PATH="${PACKAGE_DIR}.zip"
 if [[ -e "$PACKAGE_DIR" || -e "$ZIP_PATH" || -e "${ZIP_PATH}.sha256" || \
