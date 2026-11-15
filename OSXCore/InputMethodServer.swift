@@ -41,6 +41,8 @@ final class AutomaticLayoutChangeHUD {
   private var isExiting = false
 
   var isVisible: Bool { panel.isVisible }
+  var toastLayer: CALayer? { toastContainer.layer }
+  var pillLayer: CALayer? { pillView.layer }
 
   init(
     panel suppliedPanel: NSPanel? = nil,
