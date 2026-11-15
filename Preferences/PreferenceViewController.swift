@@ -724,7 +724,7 @@ final class PreferenceViewController: NSViewController, NSTextFieldDelegate {
     }
     let applicationHelp =
       productIdentity.isBaram
-      ? "모든 앱 또는 선택한 앱에 적용합니다. Esc는 로마자로 전환합니다. 자동 한영 전환은 공백·Return·Tab에서 완전히 조합된 세벌식 단어나 사전에 있는 영단어만 바꾸고 실제 입력 모드도 전환합니다. 예: jfshea → 안녕, 세벌식으로 잘못 친 apple → apple. 일부 터미널 앱과 보안 입력은 제외됩니다."
+      ? "모든 앱 또는 선택한 앱에 적용합니다. Esc는 로마자로 전환합니다. 자동 한영 전환은 공백·Return·Tab에서 완전히 조합된 현대 두벌식·세벌식 단어나 사전에 있는 영단어만 바꾸고 실제 입력 모드도 전환합니다. 예: dkssud 또는 jfshea → 안녕, 한글 모드에서 잘못 친 apple → apple. 일부 터미널 앱과 보안 입력은 제외됩니다."
       : "선택한 Vim·터미널·코드 편집기에서만 Esc 또는 Control+[로 한글 조합을 끝내고 로마자로 전환합니다."
     advancedSections.append(
       section("앱별 동작", rows: applicationRows, explanation: helperText(applicationHelp)))
@@ -1077,7 +1077,7 @@ final class PreferenceViewController: NSViewController, NSTextFieldDelegate {
         let applications = chooseApplications(
           title: "자동 한영 전환을 사용할 앱 선택",
           message:
-            "잘못 선택한 입력 모드에서 완전히 조합된 세벌식 단어나 사전에 있는 영단어를 바꾸고 실제 한영 모드도 전환합니다. 예: jfshea → 안녕, 한글 모드에서 잘못 친 apple → apple. 일부 터미널 앱과 보안 입력은 제외됩니다."
+            "잘못 선택한 입력 모드에서 완전히 조합된 현대 두벌식·세벌식 단어나 사전에 있는 영단어를 바꾸고 실제 한영 모드도 전환합니다. 예: dkssud 또는 jfshea → 안녕, 한글 모드에서 잘못 친 apple → apple. 일부 터미널 앱과 보안 입력은 제외됩니다."
         )
       else { return }
       configuration.hangulLayoutAutocorrectionAllApplications = false

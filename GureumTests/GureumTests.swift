@@ -2185,7 +2185,8 @@ class PreferencesFormTests: IsolatedChordConfigurationTests {
     XCTAssertTrue(menu.itemArray.contains { ($0.representedObject as? String) == "choose" })
     XCTAssertTrue(
       views.compactMap { $0 as? NSTextField }.contains {
-        $0.stringValue.contains("jfshea → 안녕") && $0.stringValue.contains("모든 앱 또는 선택한 앱")
+        $0.stringValue.contains("dkssud 또는 jfshea → 안녕")
+          && $0.stringValue.contains("모든 앱 또는 선택한 앱")
       })
   }
 
