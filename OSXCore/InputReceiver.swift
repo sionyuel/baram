@@ -97,7 +97,8 @@ enum RomanLayoutAutocorrector {
   /// Repeated standalone jamo are common Korean chat expressions (`ㅎㅎㅎㅎ`, `ㅋㅋㅋㅋ`, `ㅠㅠ`).
   /// Dictionary evidence for their physical keys must not turn them into Roman text.
   static func isRepeatedHangulJamoExpression(_ output: String) -> Bool {
-    let scalars = Array(output.unicodeScalars)
+    var scalars = Array(output.unicodeScalars)
+    while let last = scalars.last, sentencePunctuation.contains(last) { scalars.removeLast() }
     guard scalars.count >= 2, let first = scalars.first,
       (0x1100...0x11FF).contains(first.value) || (0x3130...0x318F).contains(first.value)
     else { return false }
