@@ -2,8 +2,8 @@
 
 ## Source of truth
 
-Status: **Draft — product name and wind-first mark direction confirmed; final geometry proposed for review.**
-Date: 2026-11-14.  
+Status: **Implemented trial product — product name, wind-first mark, layout badges, preferences, and conversion feedback are in the local build; public-release review remains open.**
+Date: 2026-11-15.
 Product: **바람 입력기 · Baram Input Method**. The local ad-hoc Baram build now has an independent app, input-source, defaults, and IMK identity; recoverable Lab backups remain, but Lab is no longer installed.
 
 Surfaces: macOS input-menu symbols, app icon, preferences, installer/readme, release materials, and the eight-page brand sheet at `docs/brand/baram/sheet.html`. PDF and 1200×750 page PNGs are generated under `docs/brand/baram/brand-sheet/`. The earlier one-page SVG is an overview study only.
@@ -14,14 +14,14 @@ Evidence reviewed:
 - `OSXCore/HangulComposer.swift:128–155`: libhangul automatic reordering is an option; physical chord recognition is a separate, unproved capability.
 - `Preferences/PreferenceViewController.swift:162–321`: revised Input / Shortcuts / Advanced navigation and native settings form.
 - `Preferences/PreferenceViewController.swift`: semantic AppKit colors, 13 pt labels / 11 pt help, mini switches, small native popups, footer explanations, and compact rows.
-- `OSX/ConfigurationWindow.swift`: the app window owns a centered native preference toolbar, fixed 500 pt content width, per-category fitted height, and automatic keyboard traversal. The legacy prefPane host retains segmented navigation.
+- `OSX/ConfigurationWindow.swift`: the app window owns a centered native preference toolbar, fixed 500 pt content width, one stable height based on the tallest category, and automatic keyboard traversal. The legacy prefPane host retains segmented navigation.
 - Reviewed G007 light/dark/minimum/long-value renders, including `/tmp/gureum-preferences-after/preferences-input-light.png` and `preferences-input-dark.png`. These temporary renders are evidence, not shipping brand assets.
 - `COPYING:1–8` and `OSX/Icons/COPYING:1–4`: source and inherited icon rights differ. Existing cloud artwork is not the basis of the new mark.
 - Historical Baram's own introduction: <https://baramim.blogspot.com/>. It also uses the wish meaning of 바람. Our implementation derives from Gureum; formal continuation of historical Baram is not established.
 - User-confirmed name and meaning: wind moves clouds; the input method responds “나의 바람대로.” The user requested a brand sheet before final colors/icons are applied.
 - Authoritative family conventions reviewed in `/Users/nexus/Obsidian/kathar0s/Resources/brand_assets/sionyul/README.md`, `sionyul/app-guide/README.md`, `mitten/README.md`, and the Sionyuel brand MOC/logo brief. Required sheet order: cover / story / logo / color / app screen / typography+icons / don't / application, eight pages at 1200×750 pt. Repository source is authoritative; Obsidian holds generated review copies.
 
-Observed implementation and proposed brand decisions are distinguished below. No app identifiers, installed icons, or product defaults change through this document.
+Observed implementation and remaining brand-review decisions are distinguished below. This document records the shipped trial implementation; it does not itself change app identifiers, installed icons, or product defaults.
 
 ## Brand
 
@@ -93,7 +93,7 @@ Lab contributes Settings, Help & Support containing the fork's Issues and Source
 
 ## Visual language
 
-Proposed brand tokens (not yet applied to production code):
+Brand tokens used by the brand assets, input-source badges, and conversion HUD:
 
 | Token | Value | Role |
 |---|---|---|
@@ -121,7 +121,7 @@ Spacing: 4/6/8/10/12/16/20 pt rhythm. The user's System Settings reference and i
 
 Shape/elevation: native window chrome and stock `NSBox(.primary)` preference groups with system-owned fill/corners. No custom group fill, border, or radius: on macOS 26 the group should become slightly lighter than its dark window and slightly darker than its light window. Brand document target radii remain 8/12/20 pt plus pill and do not override native control geometry. No nested cards, floating shadows, or gloss. App-icon source master is a full 1024×1024 square with separate background/mark layers; the OS supplies the final mask. Rounded containers shown on the sheet are presentation mockups, not baked production masks.
 
-Motion: retain system menu/switch transitions. Respect Reduce Motion. No typing-time bounce, logo animation, or particle effects.
+Motion: retain system menu/switch transitions. Respect Reduce Motion. The automatic-switch HUD uses the bounded family toast motion described below; continuous typing-time decoration, logo animation, and particle effects are excluded.
 
 Iconography: original **바람 궤적 B** mark; system SF Symbols for functional UI. Master geometry uses a 128-unit frame with 9-unit strokes and three open wind curls. The small optical version uses 11-unit strokes and simplified turns; do not scale the master unchanged for the app icon. System input-source assets deliberately omit the brand mark so the active layout stays legible at a glance. Their 22×16 pt badges use 44×32 Retina representations: Hangul jade carries `AHN`, `2`, `3`, `3F`, `390`, or `ROM`; Roman brown carries `A`, `CM`, `DV`, or deprecated `QW`. Every label is optically centered and the wider codes are fitted without reducing their vertical presence. The PNGs ship as direct bundle resources as well as asset-catalog fallbacks because TextInputMenuAgent preserves the wide direct-resource rendition but squeezed the catalog-only rendition. Keep at least 20% clear space around the standalone brand mark.
 
@@ -132,20 +132,20 @@ Iconography: original **바람 궤적 B** mark; system SF Symbols for functional
 | Component | Contract |
 |---|---|
 | Wordmark | Korean name primary; English descriptor secondary; keep “입력기” subordinate |
-| App icon | Three open wind strokes with a secondary B impression; direction approved, geometry pending visual approval and size testing |
+| App icon | Three open wind strokes with a secondary B impression; generated app-icon assets are installed in the trial build, with final release review still pending |
 | Menu symbol | System input-source rows use direct 22×16 jade or Roman-brown code badges without the brand mark; the visible mode name remains the primary textual identifier |
 | Category navigation | App path: centered native preference toolbar with Input / Shortcuts / Advanced icons and one stable height based on the tallest page. prefPane fallback: native three-way segmented control |
 | Boolean setting | Native mini NSSwitch with VoiceOver name matching its visible row label; explanations belong to the group |
 | Value menu | Borderless small NSPopUpButton retaining native menu/hover/focus/type-select behavior, with a semantic-color circular `chevron.up.chevron.down` accessory matching current System Settings |
 | Two-choice setting | The same native popup language as other value settings; Option reuses its existing popup/action |
 | Special-character key | Two 72 pt native text fields configure unshifted and Shift+grave output; one grapheme only, empty restores the active layout's default |
-| Automatic Hangul/Roman correction | Baram-only scope picker under Advanced / App behavior: off, all apps, or multiple selected apps. The current word remains input-method-owned marked text until whitespace commits it once. A complete Sebeolsik result switches to Hangul; a dictionary-confirmed mistyped English word switches to Roman. Previously committed document text is never read or replaced |
+| Automatic Hangul/Roman correction | Baram-only scope picker under Advanced / App behavior: off, all apps, or multiple selected apps. Both directions use supported Sebeolsik layouts; two-set retains manual switching and ordinary composition/deletion. The current word remains input-method-owned marked text until whitespace commits it once. A complete Sebeolsik result switches to Hangul; a dictionary-confirmed English word or valid domain with a supported TLD switches to Roman. Backspace decomposes the active syllable but deletes previously completed syllables as whole characters. Previously committed document text is never read or replaced |
 | Automatic-switch HUD | A single nonactivating 220×36 pt solid pill appears 56 pt above the active screen's lower edge after a successful commit. Hangul uses brand jade `#14675F`; Roman uses brand brown `#7B4A24`; both use white text, so direction is recognizable before reading. It follows the 2026-11-15 Sionyuel toast motion: 12 pt rise with the native spring (`mass 1 / stiffness 449 / damping 31.4`), parallel 200 ms opacity, and 180 ms downward exit. The pill layer—not the window—owns transform and opacity; no live blur is composited during motion. Because input-mode feedback can occur repeatedly while typing, Baram uses a shorter 1.8 s base hold instead of the family toast's 2.6 s; long copy still gains 0.1 s per character after 20 up to 6 s. The same text pulses to 1.04 for 160 ms and restarts its timer instead of re-entering. Reduce Motion uses 150 ms opacity only. It never takes focus, ignores the mouse, announces through VoiceOver, and never stacks notices |
 | Shortcut capture | Existing MASShortcut behavior with consistent width and accessible label |
 | System support | Always-visible compact groups and native Open buttons; no disclosure or inline-bezel links |
 | Installer | Straight instructions, concrete version/architecture/signature status, scoped backup/rollback |
 
-Token ownership: `docs/brand/baram/tokens.css` owns proposed brand-document color/font values using family role names. This file explains their application; AppKit owns runtime semantic colors. Approved brand assets under `docs/brand/baram` become export sources only after review; they are not yet application resources. No parallel runtime token registry is introduced.
+Token ownership: `docs/brand/baram/tokens.css` owns brand-document color/font values using family role names. `mark.mjs` and `build.mjs` generate the assets copied into the trial app; generated resources are not edited by hand. AppKit owns everyday control colors, while the conversion HUD uses the existing jade/Roman brand pair. Final asset licensing and release approval remain separate review items.
 
 ## Accessibility
 
@@ -155,7 +155,7 @@ The HTML sheet has semantic page labels, headings, live text, and screenshot des
 
 ## Responsive behavior
 
-This is a macOS desktop input method. Preferences keep a 500 pt content width. The app window changes height per category between 300 and 680 pt, with Reduce Motion respected; a vertical scroller remains only as a safety fallback for constrained screens and the prefPane host. Long values truncate before labels and footer explanations wrap. No mobile layout is implied. The canonical brand sheet is eight landscape pages at 1200×750 pt (1600×1000 CSS px); PNG previews render each page at 1200×750 px.
+This is a macOS desktop input method. Preferences keep a 500 pt content width and one stable height based on the tallest category, capped at 680 pt. Switching tabs does not resize the window or inherit a smaller viewport. A vertical scroller remains a fallback for constrained screens and the prefPane host. Long values truncate before labels and footer explanations wrap. No mobile layout is implied. The canonical brand sheet is eight landscape pages at 1200×750 pt (1600×1000 CSS px); PNG previews render each page at 1200×750 px.
 
 ## Interaction states
 
@@ -185,7 +185,7 @@ Provenance wording for release review: “구름 입력기를 기반으로 새�
 - No historical Baram artwork is included. No third-party font binaries or stock images are added.
 - Rebuild with `node docs/brand/baram/build.mjs`; add `--sync-obsidian` to refresh only named PDF/page copies in `/Users/nexus/Obsidian/kathar0s/Resources/brand_assets/baram/`. That folder's README records the source path, provenance, and remaining work.
 - Validate preference light/dark, minimum height, long values, always-visible system/developer groups, keyboard focus, native menu interaction, and VoiceOver. Offscreen non-key renders do not prove live accent/focus contrast; current macOS 26 evidence does not establish macOS 12–15 runtime parity.
-- Before applying icons, render 16/18/32/128/512/1024 px and inspect silhouettes at actual size. A brand-sheet preview is not a finished `.icns` or menu asset.
+- Before changing shipping icons, render 16/18/32/128/512/1024 px and inspect silhouettes at actual size. Trial `.icns` and menu assets are generated from the repository; brand-sheet previews remain review evidence.
 - The builder exports original master/small SVGs, 16/32/128 PNG comparisons, a 1024-square two-tone app-icon study, and a no-wordmark recognition grid from `mark.mjs`. Generated assets are not edited by hand.
 
 ## Open questions

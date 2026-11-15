@@ -17,10 +17,10 @@
 - 두벌식, 세벌식 최종·390·순아래·옛글·2011·2012 등 여러 한글 자판
 - 로마자, QWERTY, Dvorak, Colemak 계열 입력 소스
 - 초성·중성·종성 순서가 바뀐 낱자를 보정하는 모아치기
-- 한글 자판 XML을 그대로 읽는 설정 화면의 키보드 미리보기
-- `` ` `` 및 `Shift+`` 키에 자주 쓰는 문자 한 글자 지정
+- 실제 키 누름과 Shift에 반응하는 한글 자판 미리보기
+- grave(백틱) 및 Shift+grave 키에 자주 쓰는 문자 한 글자 지정
 - 선택한 앱에서만 Esc 또는 `Control+[`로 로마자 전환
-- 모든 앱 또는 선택한 앱에서 잘못 선택한 한글·영문 입력 모드를 단어 단위로 자동 전환
+- 지원 세벌식에서 잘못 선택한 한글·영문 입력 모드를 단어 단위로 자동 전환
 - Apple Silicon과 Intel을 함께 지원하는 Universal 빌드
 - 구름 입력기와 분리된 앱·입력 소스·설정·업데이트 식별자
 
@@ -30,9 +30,11 @@
 
 `고급 → 앱별 동작 → 실험 · 자동 한영 전환`에서 `모든 앱에서 사용`을 고르거나 여러 앱을 선택하면 켜집니다. 기본값은 꺼짐입니다. 바람의 로마자 모드에서 `jfshea`를 입력한 뒤 공백을 누르면 마지막 한글 자판으로 다시 조합해 `안녕 `으로 바꾸고 한글 모드로 전환합니다. 반대로 한글 모드에서 영단어 `apple`에 해당하는 물리 키를 누르면 공백에서 `apple `로 복원하고 로마자 모드로 전환합니다. 다음 키부터는 전환된 모드로 바로 입력됩니다. Apple ABC를 직접 선택한 동안에는 동작하지 않습니다.
 
-자동 전환용 Baram Roman은 내부 입력 모드이며 입력 소스 추가 목록에는 따로 노출하지 않습니다. 로마자에서 한글로 바꿀 때는 여러 자판을 추측하지 않고 마지막으로 사용한 지원 세벌식 자판 하나만 적용합니다.
+자동 전환은 양방향 모두 지원 세벌식 자판에서만 동작합니다. 두벌식은 수동 한영 전환과 기존 한글 조합·삭제를 사용합니다. 자동 전환용 Baram Roman은 내부 입력 모드이며 입력 소스 추가 목록에는 따로 노출하지 않습니다. 로마자에서 한글로 바꿀 때는 여러 자판을 추측하지 않고 마지막으로 사용한 지원 세벌식 자판 하나만 적용합니다. Shift+Space로 내부 모드를 바꿔도 macOS 입력 소스는 Baram에 남습니다.
 
-자동 전환 중인 단어는 밑줄이 있는 조합 문자열로 표시하고 공백·Return·Tab에서 한 번에 확정합니다. 한글 방향은 최소 세 개의 물리 키가 완성형 한글 한 음절 이상과 문장부호로 조합될 때 변환하며, `j/r → 왜`, `kgo4B → 그쵸?`도 지원합니다. 영문 방향은 시스템 사전에서 확인되는 단어만 복원하고 짧은 충돌은 한글로 보존합니다. 조합이 불완전하거나 보안 입력·제외 앱에서는 원문을 유지합니다. Backspace는 조합 중인 단어를 다시 재생해 편집하고, 마우스·단축키·외부 조기 커밋은 원문을 확정합니다. 성공하면 0.8초 동안 `한글로 자동 전환됨` 또는 `영문으로 자동 전환됨` HUD가 표시됩니다.
+자동 전환 중인 단어는 밑줄이 있는 조합 문자열로 표시하고 공백·Return·Tab에서 한 번에 확정합니다. 한글 방향은 최소 세 개의 물리 키가 완성형 한글 한 음절 이상과 문장부호로 조합될 때 변환하며, `j/r → 왜`, `kgo4B → 그쵸?`도 지원합니다. 영문 방향은 시스템 사전에서 확인되는 단어나 `haezoom.com`처럼 지원 TLD를 가진 유효한 도메인을 복원합니다. 짧은 충돌은 한글로 보존합니다. 조합이 불완전하거나 보안 입력·제외 앱에서는 원문을 유지합니다.
+
+Backspace는 현재 조합 중인 음절을 자모 단위로 지우고, 앞에서 이미 완성된 음절은 한 글자 단위로 지웁니다. 예를 들어 `안녀 → 안ㄴ → 안 → 빈 문자열`로 삭제됩니다. 마우스·단축키·외부 조기 커밋은 원문을 확정합니다. 전환에 성공하면 한글은 비취색, 영문은 갈색 HUD가 기본 1.8초 표시됩니다. 문구와 색을 함께 사용하며, 시스템의 동작 줄이기 설정도 따릅니다.
 
 앱의 표준 조합 문자열 API를 사용하며 이미 확정한 앞 문장을 다시 읽거나 교체하지 않습니다. 실행 취소와 비밀번호 필드 감지는 앱마다 다를 수 있어 실제 앱별 검증이 필요합니다. 키열은 해당 입력 세션의 현재 단어만 메모리에 보관하며 저장하거나 네트워크로 전송하지 않습니다.
 
@@ -44,7 +46,7 @@
 
 ### 소스에서 시험 빌드
 
-요구 환경은 macOS 12 이상과 Xcode입니다.
+요구 환경은 macOS 12 이상과 전체 Xcode입니다. 아래의 `make init`은 Homebrew로 ShellCheck를, RubyGems로 xcpretty를 준비하므로 Homebrew와 RubyGems도 필요합니다. 이미 서브모듈과 도구를 준비했다면 `make init`을 생략할 수 있습니다.
 
 ```sh
 git clone --recurse-submodules https://github.com/sionyuel/baram.git
@@ -72,6 +74,27 @@ tools/install_baram.sh --uninstall
 
 Baram 앱은 백업 폴더로 이동하며 사용자 설정은 자동 삭제하지 않습니다.
 
+### 이전 Baram 버전으로 복구
+
+먼저 ABC 또는 기존 한글 입력기로 전환하세요. Finder의 `이동 → 폴더로 이동`에서 `~/Library/Application Support/Baram/Backups/`를 열고 복구할 `baram.XXXXXX/Baram.app`을 선택합니다. 다음 예시의 `baram_backup`에는 그 앱의 절대 경로를 넣습니다.
+
+```sh
+baram_backup="/선택한/백업/Baram.app"
+test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$baram_backup/Contents/Info.plist")" = 'com.sionyuel.inputmethod.Baram'
+/usr/bin/codesign --verify --deep --strict "$baram_backup"
+```
+
+두 검증이 모두 성공한 뒤 현재 앱을 보존하고 백업을 복사합니다. 선택한 백업 원본과 사용자 설정은 유지됩니다.
+
+```sh
+tools/install_baram.sh --uninstall
+/usr/bin/ditto "$baram_backup" "$HOME/Library/Input Methods/Baram.app"
+/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f "$HOME/Library/Input Methods/Baram.app"
+tools/baram_input_source.sh activate han3final
+```
+
+`han3final`은 세벌식 최종입니다. 다른 배열을 사용한다면 `tools/baram_input_source.sh list`에서 확인한 배열 접미사를 넣으세요. 선택이 거절되면 시스템 설정에서 Baram 자판을 다시 추가하고, 필요한 경우 작업을 저장한 뒤 로그아웃·로그인합니다. 이 수동 복구 예시는 설치된 앱을 교체하므로 실제 복구가 필요할 때만 실행하세요.
+
 ## 권한과 개인정보
 
 일반 한글 입력에는 입력 모니터링 권한이 필요하지 않습니다. 이 권한은 다음 선택 기능에만 사용합니다.
@@ -85,7 +108,17 @@ Baram 앱은 백업 폴더로 이동하며 사용자 설정은 자동 삭제하�
 
 Baram은 구름의 업데이트 서버를 사용하지 않습니다. 정식 버전은 `https://baram.sionyuel.com/version.json`의 독립 피드에서 확인하며, 설정에서 알림을 끌 수 있습니다. 공개 배포 전 시험 빌드에서는 업데이트 확인 자체를 비활성화합니다.
 
+공개 버전은 `2.0.0`, 태그는 `Baram-2.0.0` 형식을 사용합니다. 현재 준비 상태는 [릴리스 체크리스트](docs/release/Baram-2.0.0-rc-checklist.md)에서 확인할 수 있습니다.
+
 ## 개발
+
+설치 상태를 바꾸지 않는 Universal Release Candidate 묶음은 깨끗한 작업 트리에서 다음과 같이 만듭니다.
+
+```sh
+tools/package_baram.sh --version 2.0.0-rc.1
+```
+
+산출물은 `dist/` 아래에 생성되며 Release 앱, 체크섬, build-info, 라이선스와 libhangul 대응 소스를 포함합니다. 이 로컬 후보는 ad-hoc 서명이고 공증되지 않았으므로 공개 다운로드나 업데이트 피드에 연결하면 안 됩니다.
 
 전체 테스트:
 
