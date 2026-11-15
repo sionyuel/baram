@@ -59,7 +59,7 @@ for binary in "$executable" \
     "${app_path}/Contents/Frameworks/Hangul.framework/Versions/A/Hangul"; do
     [[ -f "$binary" ]] || fail "runtime binary is missing: $binary"
     for architecture in arm64 x86_64; do
-        /usr/bin/lipo -verify_arch "$architecture" "$binary" || fail "runtime is not universal: $binary"
+        /usr/bin/lipo "$binary" -verify_arch "$architecture" || fail "runtime is not universal: $binary"
     done
 done
 

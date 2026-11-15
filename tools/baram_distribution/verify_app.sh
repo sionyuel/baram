@@ -35,7 +35,7 @@ for binary in "$APP_PATH/Contents/MacOS/Baram" \
     "$APP_PATH/Contents/Frameworks/GureumCore.framework/GureumCore" \
     "$APP_PATH/Contents/Frameworks/Hangul.framework/Hangul"; do
     for architecture in arm64 x86_64; do
-        /usr/bin/lipo -verify_arch "$architecture" "$binary"
+        /usr/bin/lipo "$binary" -verify_arch "$architecture"
     done
 done
 for icon in baram baram2 baram3 baram3f baram390 baramrom barameng baramcm baramdv baramqw; do
