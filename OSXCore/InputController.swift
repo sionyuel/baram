@@ -20,6 +20,20 @@ let debugLogging = false
 let debugInputController = false
 let debugSpying = true
 
+/// Process-local physical key metadata for the visible settings preview. Contains no typed text.
+public struct KeyboardPreviewInputEvent {
+  public static let notification = Notification.Name("BaramKeyboardPreviewInputEvent")
+  public let type: NSEvent.EventType
+  public let keyCode: UInt16
+  public let modifiers: NSEvent.ModifierFlags
+
+  init(_ event: NSEvent) {
+    type = event.type
+    keyCode = event.keyCode
+    modifiers = event.modifierFlags
+  }
+}
+
 //! @enum
 //! @brief  최종적으로 InputController가 처리할 결과
 
@@ -383,6 +397,12 @@ extension InputController {  // IMKServerInputHandleEvent
     // sender is (IMKTextInput & IMKUnicodeTextInput & IMTSMSupport)
     let client = asClient(sender)
     flushChangedPhysicalClient(client)
+    if [.keyDown, .keyUp, .flagsChanged].contains(event.type),
+      !PhysicalKeyEventSource.shared.secureInputEnabled
+    {
+      NotificationCenter.default.post(
+        name: KeyboardPreviewInputEvent.notification, object: KeyboardPreviewInputEvent(event))
+    }
 
     #if DEBUG
       if InputMethodIdentity.current.recordsChordDiagnostics,
@@ -444,6 +464,9 @@ extension InputController {  // IMKServerInputHandleEvent
         text: event.characters, key: keyCode, modifiers: event.modifierFlags, client: client)
       dlog(debugLogging, "LOGGING::PROCESSED::\(result)")
       return result.processed
+    case .keyUp:
+      // Preview observation must leave key releases available to the client application.
+      return false
     case .flagsChanged:
       dlog(
         debugInputController,

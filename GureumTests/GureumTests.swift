@@ -1189,6 +1189,59 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
     }
   }
 
+  func testReverseCorrectionDoesNotDropLeadingPunctuationFromValidHangul() {
+    let app = app()
+    app.controller.receiver.romanAutocorrectionKnownEnglishWord = { $0 == "vies" }
+    app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    app.inputKeys(";vies")
+    XCTAssertEqual(app.client.string, "보면")
+
+    app.inputText(" ", key: .space)
+
+    XCTAssertEqual(app.client.string, "보면 ")
+    XCTAssertFalse(isRoman(app))
+    for prefix in [";", ",", ".", "!", "?", ":", ")"] {
+      XCTAssertFalse(
+        RomanLayoutAutocorrector.isKnownEnglishExpression(prefix + "vies") { $0 == "vies" },
+        prefix)
+    }
+  }
+
+  func testReverseCorrectionStillRestoresEnglishWithIncompleteJamo() {
+    for word in ["apple", "hello", "swift", "paseo", "compact", "world", "haezoom.com"] {
+      let app = app()
+      app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+      typeWord(app, word)
+      XCTAssertEqual(app.client.string, word + " ", word)
+      XCTAssertTrue(isRoman(app), word)
+    }
+  }
+
+  func testReverseCorrectionRestoresGitHubWithoutSystemDictionarySupport() {
+    Configuration.shared.hangulAutoReorder = true
+    let app = app()
+    app.controller.receiver.romanAutocorrectionKnownEnglishWord = { _ in false }
+    app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    app.inputKeys("github")
+    XCTAssertEqual(app.client.string, "므너두")
+
+    app.inputText(" ", key: .space)
+
+    XCTAssertEqual(app.client.string, "github ")
+    XCTAssertTrue(isRoman(app))
+    XCTAssertTrue(RomanLayoutAutocorrector.isKnownEnglishExpression("github") { _ in false })
+    XCTAssertTrue(RomanLayoutAutocorrector.isKnownEnglishExpression("GitHub") { _ in false })
+  }
+
+  func testEnglishExpressionAllowsOpeningQuotesAndTrailingPunctuation() {
+    for expression in ["hello;", "hello,", "\"hello\"", "'hello'", "(hello)", "“hello”", "‘hello’"]
+    {
+      XCTAssertTrue(
+        RomanLayoutAutocorrector.isKnownEnglishExpression(expression) { $0 == "hello" },
+        expression)
+    }
+  }
+
   func testTwoSetKeepsNativeResyllabificationAndBackspaceBehavior() {
     let app = app()
     app.controller.receiver.composer.inputMode = GureumInputSource.han2.rawValue
@@ -1592,6 +1645,24 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
   }
 
   // MARK: - English prefix with a Hangul suffix
+
+  func testDocumentedGitHubMixedTokensDoNotDependOnSystemSpellingDictionary() {
+    for (layout, keys) in [(GureumInputSource.han2, "githubdptj"), (.han3Final, "githubjcnt")] {
+      let app = app(hangulSource: layout)
+      app.controller.receiver.romanAutocorrectionKnownEnglishWord = { _ in false }
+      typeWord(app, keys)
+      XCTAssertEqual(app.client.string, "github에서 ", keys)
+      XCTAssertFalse(isRoman(app), keys)
+    }
+  }
+
+  func testGitHubMixedTokenUsesAUniqueBoundaryWithShorterKnownPrefixes() {
+    XCTAssertEqual(
+      RomanLayoutAutocorrector.convertEnglishPrefixWithHangulSuffix(
+        keys: "githubjcnt", roman: "githubjcnt", keyboard: "3f",
+        isKnownWord: { ["git", "Github"].contains($0) }),
+      "github에서")
+  }
 
   func testEnglishPrefixWithTwoSetSuffixSplitsAtTheBoundary() {
     let app = twoSetApp()
@@ -2374,6 +2445,61 @@ class PreferencesFormTests: IsolatedChordConfigurationTests {
     window.close()
   }
 
+  func testKeyboardPreviewReceivesInputMethodEventsWhileAnotherAppHasFocus() {
+    let preview = KeyboardPreviewView(layoutIdentifier: "3f", layoutName: "세벌식 최종")
+    let window = NSWindow(
+      contentRect: NSRect(x: 0, y: 0, width: 500, height: 150),
+      styleMask: [.titled], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView?.addSubview(preview)
+    window.orderFront(nil)
+    defer { window.close() }
+    let app = ModerateApp()
+
+    _ = app.controller.handle(previewEvent(.keyDown, keyCode: 40), client: app.client)
+    XCTAssertEqual(preview.pressedKeys, ["k"])
+    _ = app.controller.handle(
+      previewEvent(.flagsChanged, keyCode: 56, modifiers: .shift), client: app.client)
+    XCTAssertTrue(preview.isShiftPressed)
+    XCTAssertEqual(preview.visibleLabel(for: "k"), "2")
+    XCTAssertFalse(app.controller.handle(previewEvent(.keyUp, keyCode: 40), client: app.client))
+    RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.2))
+    XCTAssertTrue(preview.pressedKeys.isEmpty)
+
+    preview.isHidden = true
+    _ = app.controller.handle(previewEvent(.keyDown, keyCode: 40), client: app.client)
+    XCTAssertTrue(preview.pressedKeys.isEmpty)
+    XCTAssertFalse(preview.isShiftPressed)
+    preview.isHidden = false
+    window.orderOut(nil)
+    _ = app.controller.handle(previewEvent(.keyDown, keyCode: 40), client: app.client)
+    XCTAssertTrue(preview.pressedKeys.isEmpty)
+  }
+
+  func testKeyboardPreviewKeepsObservingWhenTheSameSettingsWindowReopens() {
+    let preview = KeyboardPreviewView(layoutIdentifier: "3f", layoutName: "세벌식 최종")
+    let window = NSWindow(
+      contentRect: NSRect(x: 0, y: 0, width: 500, height: 150),
+      styleMask: [.titled], backing: .buffered, defer: false)
+    window.isReleasedWhenClosed = false
+    window.contentView?.addSubview(preview)
+    defer { window.close() }
+    let app = ModerateApp()
+
+    for _ in 0..<3 {
+      window.orderFront(nil)
+      _ = app.controller.handle(
+        previewEvent(.keyDown, keyCode: 40, modifiers: .shift), client: app.client)
+      XCTAssertEqual(preview.pressedKeys, ["k"])
+      XCTAssertTrue(preview.isShiftPressed)
+
+      window.close()
+      XCTAssertTrue(preview.pressedKeys.isEmpty)
+      XCTAssertFalse(preview.isShiftPressed)
+      XCTAssertTrue(preview.window === window)
+    }
+  }
+
   func testEveryPageKeyLoopContainsOnlyItsVisibleControlsInReadingOrder() throws {
     for product in [InputMethodProductKind.upstream, .lab, .baram] {
       try assertPageKeyLoops(identity: identity(product))
@@ -3106,12 +3232,12 @@ class InputMethodIdentityTests: XCTestCase {
     XCTAssertEqual(upstream.subtracting(lab), [])
   }
 
-  func testBaramDoesNotRequestIMKKeyUpDiagnostics() throws {
+  func testBaramRequestsIMKKeyUpForTheLiveKeyboardPreview() throws {
     let app = ModerateApp()
     let mask = app.controller.receiver.recognizedEvents(app.client, identity: try baramIdentity())
 
     XCTAssertTrue(mask.contains(.keyDown))
-    XCTAssertFalse(mask.contains(.keyUp))
+    XCTAssertTrue(mask.contains(.keyUp))
   }
 }
 

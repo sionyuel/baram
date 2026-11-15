@@ -39,19 +39,31 @@ enum RomanLayoutAutocorrector {
     supportedHangulKeyboards.contains(identifier)
   }
 
+  private static func isKnownEnglishWord(
+    _ word: String, isKnownWord: (String) -> Bool
+  ) -> Bool {
+    word.lowercased() == "github" || isKnownWord(word)
+  }
+
   static func isKnownEnglishExpression(
     _ output: String, isKnownWord: (String) -> Bool
   ) -> Bool {
     if isDomainExpression(output) { return true }
+    // A word may start with an opening quote or parenthesis, but dropping arbitrary
+    // leading punctuation can turn valid three-set Hangul (`;vies` -> 보면) into English.
+    let openingPunctuation = CharacterSet(charactersIn: "(\"'“‘")
+    guard let first = output.unicodeScalars.drop(while: openingPunctuation.contains).first,
+      (65...90).contains(first.value) || (97...122).contains(first.value)
+    else { return false }
     let candidates = englishWordCandidates(output)
     guard !candidates.isEmpty else { return false }
     return candidates.allSatisfy { candidate in
-      if isKnownWord(candidate) { return true }
+      if isKnownEnglishWord(candidate, isKnownWord: isKnownWord) { return true }
       guard candidate.count.isMultiple(of: 2) else { return false }
       let midpoint = candidate.index(candidate.startIndex, offsetBy: candidate.count / 2)
       let first = String(candidate[..<midpoint])
       let second = String(candidate[midpoint...])
-      return first == second && isKnownWord(first)
+      return first == second && isKnownEnglishWord(first, isKnownWord: isKnownWord)
     }
   }
 
@@ -157,9 +169,11 @@ enum RomanLayoutAutocorrector {
           (65...90).contains($0.value) || (97...122).contains($0.value)
         }
     }
-    // NSSpellChecker knows "Github" but not "github"; treat the proper-noun spelling as known.
+    // Keep the documented GitHub example stable across macOS dictionaries. This only
+    // supplies prefix evidence; the suffix must still compose at a unique boundary.
     func isKnownPrefix(_ word: String) -> Bool {
-      isKnownWord(word) || (word == word.lowercased() && isKnownWord(word.capitalized))
+      isKnownEnglishWord(word, isKnownWord: isKnownWord)
+        || (word == word.lowercased() && isKnownWord(word.capitalized))
     }
     if isLetters(roman), isKnownPrefix(roman) { return nil }
     var matches: [String] = []
@@ -810,6 +824,10 @@ extension InputReceiver {  // IMKStateSetting
       arrayLiteral: .keyDown, .flagsChanged, .leftMouseUp, .rightMouseUp, .leftMouseDown,
       .rightMouseDown, .leftMouseDragged, .rightMouseDragged, .appKitDefined, .applicationDefined,
       .systemDefined)
+    if identity.isBaram {
+      // Settings previews observe releases without consuming them in InputController.handle.
+      return events.union(.keyUp)
+    }
     #if DEBUG
       if identity.recordsChordDiagnostics {
         return events.union(.keyUp)

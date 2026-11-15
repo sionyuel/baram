@@ -156,10 +156,29 @@ final class KeyboardPreviewView: NSView {
       NotificationCenter.default.addObserver(
         forName: NSWindow.didResignKeyNotification, object: window, queue: .main
       ) { [weak self] _ in self?.resetInteraction() },
+      // Settings reuses its window after closing; detach/deinit owns observer cleanup.
       NotificationCenter.default.addObserver(
         forName: NSWindow.willCloseNotification, object: window, queue: .main
-      ) { [weak self] _ in self?.stopObservingKeyboard() },
+      ) { [weak self] _ in self?.resetInteraction() },
     ]
+    #if !USE_PREFPANE
+      windowObservers.append(
+        NotificationCenter.default.addObserver(
+          forName: KeyboardPreviewInputEvent.notification, object: nil, queue: .main
+        ) { [weak self] notification in
+          guard let self else { return }
+          guard self.window?.isVisible == true, !self.isHiddenOrHasHiddenAncestor,
+            let event = notification.object as? KeyboardPreviewInputEvent
+          else {
+            self.resetInteraction()
+            return
+          }
+          // The local monitor owns events when settings has focus; avoid observing twice.
+          guard self.window?.isKeyWindow != true else { return }
+          self.observeKeyboardEvent(
+            type: event.type, keyCode: event.keyCode, modifiers: event.modifiers)
+        })
+    #endif
   }
 
   private func stopObservingKeyboard() {
@@ -181,12 +200,19 @@ final class KeyboardPreviewView: NSView {
 
   @discardableResult
   func observeKeyboardEvent(_ event: NSEvent) -> NSEvent {
-    isShiftPressed = event.modifierFlags.contains(.shift)
-    if let key = Self.physicalKeys[event.keyCode] {
-      if event.type == .keyDown {
+    observeKeyboardEvent(type: event.type, keyCode: event.keyCode, modifiers: event.modifierFlags)
+    return event
+  }
+
+  private func observeKeyboardEvent(
+    type: NSEvent.EventType, keyCode: UInt16, modifiers: NSEvent.ModifierFlags
+  ) {
+    isShiftPressed = modifiers.contains(.shift)
+    if let key = Self.physicalKeys[keyCode] {
+      if type == .keyDown {
         releaseWorkItems.removeValue(forKey: key)?.cancel()
         pressedKeys.insert(key)
-      } else if event.type == .keyUp {
+      } else if type == .keyUp {
         releaseWorkItems.removeValue(forKey: key)?.cancel()
         let release = DispatchWorkItem { [weak self] in
           self?.pressedKeys.remove(key)
@@ -200,7 +226,6 @@ final class KeyboardPreviewView: NSView {
     }
     updateAccessibilityValue()
     needsDisplay = true
-    return event
   }
 
   func visibleLabel(for key: String) -> String {

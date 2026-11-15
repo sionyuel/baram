@@ -6,7 +6,7 @@
 
 **Baram Input Method**는 macOS용 오픈소스 한글 입력기입니다. [구름 입력기](https://github.com/gureum/gureum)의 검증된 기반을 이어받아 세벌식 모아치기, 현대적인 설정 화면, 독립적인 브랜드와 업데이트 경로를 다듬고 있습니다.
 
-> 현재 상태: `1.0.0-rc.2` 공개 프리릴리스입니다. Universal Release 앱이지만 Apple Developer ID 서명·공증은 아직 없습니다.
+> 현재 상태: `1.0.0-rc.3` 공개 프리릴리스입니다. Universal Release 앱이지만 Apple Developer ID 서명·공증은 아직 없습니다.
 
 [![platform](https://img.shields.io/badge/macOS-12%2B-111827?logo=apple)](https://github.com/sionyuel/baram)
 [![architectures](https://img.shields.io/badge/architecture-Apple%20Silicon%20%7C%20Intel-458C80)](https://github.com/sionyuel/baram)
@@ -32,7 +32,7 @@
 
 자동 전환은 양방향 모두 현대 두벌식(`2-full`)과 지원 세벌식 자판에서 동작합니다. 두벌식 옛글(`2y-full`)은 적용하지 않으며 수동 한영 전환과 기존 한글 조합·삭제를 사용합니다. 자동 전환용 Baram Roman은 내부 입력 모드이며 입력 소스 추가 목록에는 따로 노출하지 않습니다. 로마자에서 한글로 바꿀 때는 여러 자판을 추측하지 않고 마지막으로 사용한 지원 두벌식·세벌식 자판 하나만 적용합니다. 물리적 동시입력 묶기는 계속 지원 세벌식 전용입니다. Shift+Space로 내부 모드를 바꿔도 macOS 입력 소스는 Baram에 남습니다.
 
-자동 전환 중인 단어는 밑줄이 있는 조합 문자열로 표시하고 공백·Return·Tab에서 한 번에 확정합니다. 한글 방향은 최소 세 개의 물리 키가 완성형 한글 한 음절 이상과 문장부호로 조합될 때 변환하며, `j/r → 왜`, `kgo4B → 그쵸?`도 지원합니다. 두벌식은 우연히 한글로 조합되는 영문이 많아 더 보수적으로 두 음절 이상이 완성될 때만 변환하고(`dkssud → 안녕`, `rksk → 가나`), 영문 복원은 불완전 낱자가 보이는 4글자 이상 단어에만 적용합니다. 한 토큰 안의 영문 접두어와 한글 접미어는 접두어가 확실한 영단어이고 접미어가 완전히 조합될 때만 나눠 바꿉니다(두벌식 `githubdptj → github에서`, 세벌식 최종 `githubjcnt → github에서`). `v2`, `build.sh`, `foo/bar`, `--flag`, `key=value` 같은 코드·경로·파일명 토큰은 영문으로 유지합니다. 두벌식 한글 모드의 Backspace는 자동 전환 없이 쓸 때와 같이 동작합니다. 영문 방향은 시스템 사전에서 확인되는 단어나 `haezoom.com`처럼 지원 TLD를 가진 유효한 도메인을 복원합니다. 짧은 충돌은 한글로 보존합니다. 조합이 불완전하거나 보안 입력·제외 앱에서는 원문을 유지합니다.
+자동 전환 중인 단어는 밑줄이 있는 조합 문자열로 표시하고 공백·Return·Tab에서 한 번에 확정합니다. 한글 방향은 최소 세 개의 물리 키가 완성형 한글 한 음절 이상과 문장부호로 조합될 때 변환하며, `j/r → 왜`, `kgo4B → 그쵸?`도 지원합니다. 두벌식은 우연히 한글로 조합되는 영문이 많아 더 보수적으로 두 음절 이상이 완성될 때만 변환하고(`dkssud → 안녕`, `rksk → 가나`), 영문 복원은 불완전 낱자가 보이는 4글자 이상 단어에만 적용합니다. 한 토큰 안의 영문 접두어와 한글 접미어는 접두어가 확실한 영단어이고 접미어가 완전히 조합될 때만 나눠 바꿉니다(두벌식 `githubdptj → github에서`, 세벌식 최종 `githubjcnt → github에서`). `github`는 시스템 사전과 무관하게 확실한 기술 용어로 인식하며, 세벌식 최종에서 잘못 입력한 `므너두`도 `github`로 복원합니다. `;vies → 보면`처럼 선행 문장부호를 버렸을 때만 영단어가 되는 키열은 한글로 보존합니다. `v2`, `build.sh`, `foo/bar`, `--flag`, `key=value` 같은 코드·경로·파일명 토큰은 영문으로 유지합니다. 두벌식 한글 모드의 Backspace는 자동 전환 없이 쓸 때와 같이 동작합니다. 영문 방향은 시스템 사전에서 확인되는 단어나 `haezoom.com`처럼 지원 TLD를 가진 유효한 도메인을 복원합니다. 짧은 충돌은 한글로 보존합니다. 조합이 불완전하거나 보안 입력·제외 앱에서는 원문을 유지합니다.
 
 Backspace는 현재 조합 중인 음절을 자모 단위로 지우고, 앞에서 이미 완성된 음절은 한 글자 단위로 지웁니다. 예를 들어 `안녀 → 안ㄴ → 안 → 빈 문자열`로 삭제됩니다. 마우스·단축키·외부 조기 커밋은 원문을 확정합니다. 전환에 성공하면 한글은 비취색, 영문은 갈색 HUD가 기본 1.8초 표시됩니다. 문구와 색을 함께 사용하며, 시스템의 동작 줄이기 설정도 따릅니다.
 
@@ -42,7 +42,7 @@ Backspace는 현재 조합 중인 음절을 자모 단위로 지우고, 앞에�
 
 ### 공개 배포
 
-공식 배포 주소는 [baram.sionyuel.com](https://baram.sionyuel.com)입니다. `1.0.0-rc.2` 프리릴리스 ZIP과 SHA-256은 [GitHub Release](https://github.com/sionyuel/baram/releases/tag/Baram-1.0.0-rc.2)에서 함께 제공합니다. Developer ID 서명·Apple 공증이 없으므로 체크섬을 확인한 뒤 시험용으로 설치하고 기존 입력기를 남겨 두세요.
+공식 배포 주소는 [baram.sionyuel.com](https://baram.sionyuel.com)입니다. `1.0.0-rc.3` 프리릴리스 ZIP과 SHA-256은 [GitHub Release](https://github.com/sionyuel/baram/releases/tag/Baram-1.0.0-rc.3)에서 함께 제공합니다. Developer ID 서명·Apple 공증이 없으므로 체크섬을 확인한 뒤 시험용으로 설치하고 기존 입력기를 남겨 두세요.
 
 압축을 푼 `Baram.app`을 `~/Library/Input Methods/`에 복사합니다. macOS가 차단하면 앱을 한 번 연 뒤 `시스템 설정 → 개인정보 보호 및 보안 → 확인 없이 열기`를 사용합니다. 보안 기능 전체를 끄거나 격리 속성을 강제로 제거하지 마세요.
 
@@ -110,7 +110,7 @@ tools/baram_input_source.sh activate han3final
 
 Baram은 구름의 업데이트 서버를 사용하지 않습니다. 정식 버전은 `https://baram.sionyuel.com/version.json`의 독립 피드에서 확인하며, 설정에서 알림을 끌 수 있습니다. 서명·공증 전 공개 프리릴리스에서는 업데이트 확인 자체를 비활성화합니다.
 
-현재 공개 프리릴리스는 `1.0.0-rc.2`, 태그는 `Baram-1.0.0-rc.2`입니다. 정식 버전은 `1.0.0`, 태그는 `Baram-1.0.0` 형식을 사용합니다. 현재 준비 상태는 [릴리스 체크리스트](docs/release/Baram-1.0.0-rc-checklist.md)에서 확인할 수 있습니다.
+현재 공개 프리릴리스는 `1.0.0-rc.3`, 태그는 `Baram-1.0.0-rc.3`입니다. 정식 버전은 `1.0.0`, 태그는 `Baram-1.0.0` 형식을 사용합니다. 현재 준비 상태는 [릴리스 체크리스트](docs/release/Baram-1.0.0-rc-checklist.md)에서 확인할 수 있습니다.
 
 ## 개발
 
