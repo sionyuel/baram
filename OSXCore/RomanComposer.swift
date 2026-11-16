@@ -65,8 +65,10 @@ final class RomanComposer: Composer {
     return bufferedRomanOutput
   }
 
+  /// Only the word still being composed. IMKInputController inserts this when a composition is
+  /// cancelled, so text already queued for commit must not appear here or it is typed twice.
   var originalString: String {
-    return (_commitString ?? "") + bufferedRomanOutput
+    return bufferedRomanOutput
   }
 
   var commitString: String {
