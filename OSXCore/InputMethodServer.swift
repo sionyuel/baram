@@ -35,6 +35,7 @@ final class AutomaticLayoutChangeHUD {
   private let pillView: NSView
   private let label: NSTextField
   private let reduceMotion: () -> Bool
+  private let presentationState: (CALayer) -> (opacity: Float, translation: CGFloat)?
   private var hideWorkItem: DispatchWorkItem?
   private var lastAnnouncement: (message: String, time: TimeInterval)?
   private var presentationGeneration = 0
@@ -48,9 +49,14 @@ final class AutomaticLayoutChangeHUD {
     panel suppliedPanel: NSPanel? = nil,
     reduceMotion: @escaping () -> Bool = {
       NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
+    },
+    presentationState: @escaping (CALayer) -> (opacity: Float, translation: CGFloat)? = {
+      guard let layer = $0.presentation() else { return nil }
+      return (layer.opacity, layer.transform.m42)
     }
   ) {
     self.reduceMotion = reduceMotion
+    self.presentationState = presentationState
     let panelSize = NSSize(
       width: Self.pillSize.width + Self.canvasInset.width * 2,
       height: Self.pillSize.height + Self.canvasInset.height * 2)
@@ -163,9 +169,8 @@ final class AutomaticLayoutChangeHUD {
     presentationGeneration += 1
     let generation = presentationGeneration
     let wasExiting = isExiting
-    let interruptedOpacity = wasExiting ? toastContainer.layer?.presentation()?.opacity : nil
-    let interruptedTranslation =
-      wasExiting ? toastContainer.layer?.presentation()?.transform.m42 : nil
+    let interruptedState =
+      wasExiting ? toastContainer.layer.flatMap(presentationState) : nil
     isExiting = false
     let repeatsVisibleMessage = !wasExiting && panel.isVisible && label.stringValue == message
     label.stringValue = message
@@ -179,8 +184,8 @@ final class AutomaticLayoutChangeHUD {
       resetToastLayer()
       panel.orderFrontRegardless()
       animateEntrance(
-        reduceMotion: reduceMotion, fromOpacity: interruptedOpacity ?? 0,
-        fromTranslation: interruptedTranslation ?? -12)
+        reduceMotion: reduceMotion, fromOpacity: interruptedState?.opacity ?? 0,
+        fromTranslation: interruptedState?.translation ?? -12)
     }
 
     let now = ProcessInfo.processInfo.systemUptime
@@ -260,9 +265,9 @@ final class AutomaticLayoutChangeHUD {
       isExiting = false
       return
     }
-    let presentation = layer.presentation()
+    let presentation = presentationState(layer)
     let fromOpacity = presentation?.opacity ?? 1
-    let fromTranslation = presentation?.transform.m42 ?? 0
+    let fromTranslation = presentation?.translation ?? 0
     layer.removeAllAnimations()
     let duration = reduceMotion ? 0.15 : 0.18
     let easing =

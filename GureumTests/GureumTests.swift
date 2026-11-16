@@ -1735,14 +1735,15 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
   func testHUDExitRetainsItsEndpointUntilThePanelOrdersOut() throws {
     for reduceMotion in [false, true] {
       let panel = HUDTestPanel()
-      let hud = AutomaticLayoutChangeHUD(panel: panel, reduceMotion: { reduceMotion })
+      let expectedOpacity: Float = 0.45
+      let expectedTranslation: CGFloat = reduceMotion ? 0 : -6
+      let hud = AutomaticLayoutChangeHUD(
+        panel: panel, reduceMotion: { reduceMotion },
+        presentationState: { _ in (expectedOpacity, expectedTranslation) })
       let client = HUDInputClient()
       hud.show(.hangul, client: client)
-      RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.08))
+      RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.03))
       let layer = try XCTUnwrap(hud.toastLayer)
-      let presentation = try XCTUnwrap(layer.presentation())
-      XCTAssertGreaterThan(presentation.opacity, 0)
-      XCTAssertLessThan(presentation.opacity, 1)
       hud.dismiss()
       RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.03))
 
@@ -1762,14 +1763,13 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
             "opacity", "transform.translation.y",
           ])
       XCTAssertEqual(
-        try XCTUnwrap(animations[0].fromValue as? Float), presentation.opacity, accuracy: 0.1)
+        try XCTUnwrap(animations[0].fromValue as? Float), expectedOpacity, accuracy: 0.001)
       XCTAssertEqual(animations[0].toValue as? Int, 0)
       if !reduceMotion {
         // AppKit's unflipped backing layer uses negative Y for a downward exit.
-        XCTAssertLessThan(presentation.transform.m42, 0)
         XCTAssertEqual(
-          try XCTUnwrap(animations[1].fromValue as? CGFloat), presentation.transform.m42,
-          accuracy: 1)
+          try XCTUnwrap(animations[1].fromValue as? CGFloat), expectedTranslation,
+          accuracy: 0.001)
         XCTAssertEqual(animations[1].toValue as? Int, -8)
         var controlPoint: [Float] = [0, 0]
         animations[0].timingFunction?.getControlPoint(at: 1, values: &controlPoint)
@@ -1796,21 +1796,22 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
     ]
     for (direction, reduceMotion) in replacements {
       let panel = HUDTestPanel()
-      let hud = AutomaticLayoutChangeHUD(panel: panel, reduceMotion: { reduceMotion })
+      let expectedOpacity: Float = 0.55
+      let expectedTranslation: CGFloat = reduceMotion ? 0 : -3
+      let hud = AutomaticLayoutChangeHUD(
+        panel: panel, reduceMotion: { reduceMotion },
+        presentationState: { _ in (expectedOpacity, expectedTranslation) })
       let client = HUDInputClient()
       hud.show(.hangul, client: client)
       RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.8))
       hud.dismiss()
       RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.09))
       let layer = try XCTUnwrap(hud.toastLayer)
-      let presentation = try XCTUnwrap(layer.presentation())
-      XCTAssertGreaterThan(presentation.opacity, 0)
-      XCTAssertLessThan(presentation.opacity, 1)
       hud.show(direction, client: client)
       RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.02))
       let fade = try XCTUnwrap(
         layer.animation(forKey: "automaticLayoutChangeFadeIn") as? CABasicAnimation)
-      XCTAssertEqual(try XCTUnwrap(fade.fromValue as? Float), presentation.opacity, accuracy: 0.15)
+      XCTAssertEqual(try XCTUnwrap(fade.fromValue as? Float), expectedOpacity, accuracy: 0.001)
       if reduceMotion {
         XCTAssertEqual(fade.duration, 0.15)
         XCTAssertNil(layer.animation(forKey: "automaticLayoutChangeSpringIn"))
@@ -1818,7 +1819,7 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
         let spring = try XCTUnwrap(
           layer.animation(forKey: "automaticLayoutChangeSpringIn") as? CASpringAnimation)
         XCTAssertEqual(
-          try XCTUnwrap(spring.fromValue as? CGFloat), presentation.transform.m42, accuracy: 1.5)
+          try XCTUnwrap(spring.fromValue as? CGFloat), expectedTranslation, accuracy: 0.001)
       }
       XCTAssertNil(layer.animation(forKey: "automaticLayoutChangeExit"))
       RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.3))
