@@ -709,6 +709,13 @@ extension InputController {  // IMKServerInput
       receiver.cancelCompositionEvent()
 
       let client = receiver.inputClient
+      // Like IMKInputController, cancelling inserts the original string in place of the marked
+      // text (observed in Chromium on 2026-11-16).
+      let original = originalString(client).string
+      if !original.isEmpty {
+        client.insertText(original, replacementRange: NSRange(location: NSNotFound, length: 0))
+        return
+      }
       let view = receiver.inputClient as! NSTextView
       let markedRange = client.markedRange()
       view.setMarkedText(

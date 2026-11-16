@@ -13,7 +13,8 @@ INSTALLED_APP="${INSTALL_DIR}/${BARAM_NAME}.app"
 MODE="${1:---build-only}"
 BARAM_ARCHS="${GUREUM_BARAM_ARCHS:-$(uname -m)}"
 BARAM_TAG="$(git -C "$REPO_DIR" describe --tags --always)"
-BARAM_VERSION="${BARAM_TAG#GureumKIM-}-Debug"
+BARAM_TAG="${BARAM_TAG#GureumKIM-}"
+BARAM_VERSION="${BARAM_TAG#Baram-}-Debug"
 PREVIOUS_BARAM_LAYOUT=''
 
 case "$BARAM_ARCHS" in

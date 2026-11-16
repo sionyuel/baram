@@ -227,7 +227,6 @@ public class InputReceiver: InputTextDelegate {
   private weak var bufferedRomanClient: AnyObject?
   private var bufferedRomanStartLocation: Int?
   private var romanAutocorrectionSuppressed = false
-  private var pendingRomanCommitReplacementRange: NSRange?
   private weak var bufferedHangulClient: AnyObject?
   private var bufferedHangulStartLocation: Int?
   private var bufferedHangulRomanOutput = ""
@@ -284,10 +283,7 @@ public class InputReceiver: InputTextDelegate {
     let hangul = composer.hangulComposer
     guard hangul.isBufferingWord else { return }
     let owner = bufferedHangulClient as? (IMKTextInput & IMKUnicodeTextInput) ?? inputClient
-    let range = Self.bufferedRomanReplacementRange(
-      markedRange: owner.markedRange(), bufferedStartLocation: bufferedHangulStartLocation,
-      selectionRange: owner.selectedRange(),
-      composedUTF16Length: (hangul.composedString as NSString).length)
+    let marked = owner.markedRange()
     hangul.finishBufferedWord()
     let original = hangul.dequeueCommitString()
     bufferedHangulClient = nil
@@ -296,7 +292,9 @@ public class InputReceiver: InputTextDelegate {
     hangulAutocorrectionSuppressed = true
     if !original.isEmpty {
       owner.insertText(
-        original, replacementRange: range ?? NSRange(location: NSNotFound, length: 0))
+        original,
+        replacementRange: marked.location != NSNotFound && marked.length > 0
+          ? marked : NSRange(location: NSNotFound, length: 0))
     }
   }
 
@@ -360,15 +358,15 @@ public class InputReceiver: InputTextDelegate {
           && RomanLayoutAutocorrector.isKnownEnglishExpression(
             bufferedHangulRomanOutput, isKnownWord: romanAutocorrectionKnownEnglishWord)
         ? bufferedHangulRomanOutput : nil
-      pendingRomanCommitReplacementRange = Self.bufferedRomanReplacementRange(
+      let start = Self.bufferedRomanReplacementRange(
         markedRange: client.markedRange(), bufferedStartLocation: bufferedHangulStartLocation,
-        selectionRange: client.selectedRange(), composedUTF16Length: (original as NSString).length)
+        selectionRange: client.selectedRange(), composedUTF16Length: (original as NSString).length)?
+        .location
       hangul.finishBufferedWord(replacingWith: converted)
       bufferedHangulClient = nil
       bufferedHangulStartLocation = nil
       bufferedHangulRomanOutput = ""
       if let converted {
-        let start = pendingRomanCommitReplacementRange?.location
         pendingAutomaticLayoutChange = .roman
         _ = input(event: .changeLayout(.roman, false), client: client)
         rememberAutomaticConversion(
@@ -453,7 +451,6 @@ public class InputReceiver: InputTextDelegate {
     {
       let converted = bufferedHangulRomanOutput + "."
       let previousMode = composer.inputMode
-      pendingRomanCommitReplacementRange = range
       hangul.finishBufferedWord(replacingWith: converted)
       bufferedHangulClient = nil
       bufferedHangulStartLocation = nil
@@ -549,15 +546,14 @@ public class InputReceiver: InputTextDelegate {
           ?? RomanLayoutAutocorrector.convertEnglishPrefixWithHangulSuffix(
             keys: roman.bufferedPhysicalKeys, roman: roman.composedString, keyboard: keyboard,
             isKnownWord: romanAutocorrectionKnownEnglishWord)
-      pendingRomanCommitReplacementRange = Self.bufferedRomanReplacementRange(
+      let start = Self.bufferedRomanReplacementRange(
         markedRange: client.markedRange(), bufferedStartLocation: bufferedRomanStartLocation,
         selectionRange: client.selectedRange(),
-        composedUTF16Length: (roman.composedString as NSString).length)
+        composedUTF16Length: (roman.composedString as NSString).length)?.location
       roman.finishBufferedWord(replacingWith: converted)
       bufferedRomanClient = nil
       bufferedRomanStartLocation = nil
       if let converted {
-        let start = pendingRomanCommitReplacementRange?.location
         pendingAutomaticLayoutChange = .hangul
         _ = input(event: .changeLayout(.hangul, false), client: client)
         rememberAutomaticConversion(
@@ -881,8 +877,6 @@ extension InputReceiver {  // IMKServerInput
     }
     // 왠지는 모르겠지만 프로그램마다 동작이 달라서 조합을 반드시 마쳐주어야 한다
     // 터미널과 같이 조합중에 리턴키 먹는 프로그램은 조합 중인 문자가 없고 보통은 있다
-    let pendingReplacementRange = pendingRomanCommitReplacementRange
-    pendingRomanCommitReplacementRange = nil
     let commitString = composer.dequeueCommitString()
 
     // 커밋할 문자가 없으면 중단
@@ -895,10 +889,12 @@ extension InputReceiver {  // IMKServerInput
       debugInputReceiver, "** InputController -commitComposition: with sender: %@ / strings: %@",
       sender as! NSObject, commitString)
     let markedRange = sender.markedRange()
+    // A buffered word is the client's marked text, so it is committed like any composition.
+    // Replacing it by its remembered range instead makes Chromium apply the text without
+    // ending the composition, and xterm.js terminals then send the word twice.
     var range =
-      pendingReplacementRange
-      ?? (markedRange.location != NSNotFound && markedRange.length > 0
-        ? markedRange : controller.selectionRange())
+      markedRange.location != NSNotFound && markedRange.length > 0
+      ? markedRange : controller.selectionRange()
     dlog(debugLogging, "LOGGING::COMMIT::%lu:%lu:%@", range.location, range.length, commitString)
     // NSLog("range1 \(range)")글
     if range.length == 0 {
