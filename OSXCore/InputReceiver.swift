@@ -472,6 +472,18 @@ public class InputReceiver: InputTextDelegate {
       resetHangulAutocorrection()
       return .notProcessed
     }
+    // Phone, authentication, and numeric fields often reformat committed ASCII themselves.
+    // Do not retain a marked-text word when the Hangul layout produced no Hangul at all;
+    // commit the first literal immediately and let the app own the rest of this token.
+    let composed = hangul.composedString
+    let containsHangul = composed.unicodeScalars.contains {
+      (0x1100...0x11FF).contains($0.value) || (0x3130...0x318F).contains($0.value)
+        || (0xAC00...0xD7A3).contains($0.value)
+    }
+    if !composed.isEmpty, !containsHangul {
+      resetHangulAutocorrection()
+      return .processed
+    }
     return .processed
   }
 

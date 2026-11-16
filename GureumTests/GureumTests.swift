@@ -1371,7 +1371,11 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
     let app = app()
     app.controller.receiver.romanAutocorrectionKnownEnglishWord = { $0 == "YYYY" }
     app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
-    app.inputKeys("YYYY")
+    for _ in 0..<4 {
+      app.inputKeys("Y")
+      XCTAssertTrue(
+        app.client.markedRange().location == NSNotFound || app.client.markedRange().length == 0)
+    }
     XCTAssertEqual(app.client.string, "5555")
 
     app.inputText(" ", key: .space)
