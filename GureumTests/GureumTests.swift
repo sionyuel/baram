@@ -1118,6 +1118,57 @@ private final class UnreadableRomanInputClient: MockInputClient {
   }
 }
 
+/// Models Chromium hosting xterm.js (Paseo's terminal) as recorded with a probe page on
+/// 2026-11-16. Clearing the marked text inside a key event only hides it: Chromium reports no
+/// marked range and a caret after it, while the page keeps the composition until the next
+/// commit. A commit without a
+/// range replaces that composition (one compositionend). A commit with an explicit range is
+/// applied at once and the composition is never ended, so xterm.js sends the word twice; the
+/// terminal cannot take sent data back.
+private final class DeferredCompositionInputClient: MockInputClient {
+  private var hiddenComposition: NSRange?
+  private var unmarking = false
+
+  override func markedRange() -> NSRange {
+    hiddenComposition == nil
+      ? super.markedRange() : NSRange(location: NSNotFound, length: NSNotFound)
+  }
+
+  override func selectedRange() -> NSRange {
+    guard let composition = hiddenComposition else { return super.selectedRange() }
+    return NSRange(location: NSMaxRange(composition), length: 0)
+  }
+
+  override func setMarkedText(
+    _ string: Any, selectedRange: NSRange, replacementRange: NSRange
+  ) {
+    let text = (string as? NSAttributedString)?.string ?? string as? String ?? ""
+    if text.isEmpty, !unmarking, hiddenComposition == nil, hasMarkedText() {
+      let composition = super.markedRange()
+      unmarking = true
+      unmarkText()
+      unmarking = false
+      hiddenComposition = composition
+      return
+    }
+    super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+  }
+
+  override func insertText(_ string: Any, replacementRange: NSRange) {
+    guard let composition = hiddenComposition else {
+      super.insertText(string, replacementRange: replacementRange)
+      return
+    }
+    hiddenComposition = nil
+    let text = (string as? NSAttributedString)?.string ?? string as? String ?? ""
+    let target =
+      replacementRange.location == NSNotFound
+      ? composition : NSRange(location: length(), length: 0)
+    textStorage?.replaceCharacters(in: target, with: text)
+    setSelectedRange(NSRange(location: target.location + (text as NSString).length, length: 0))
+  }
+}
+
 class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
   private func app(
     romanSource: GureumInputSource = .system, hangulSource: GureumInputSource = .han3Final,
@@ -2540,6 +2591,27 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
     XCTAssertEqual(app.client.markedString(), "jvhgw")
     app.inputText(" ", key: .space)
     XCTAssertEqual(app.client.string, "오늘 ")
+  }
+
+  func testMarkedWordsCommitOnceWhenTheClientDefersTheComposition() {
+    let cases: [(startsInHangul: Bool, keys: String, expected: String)] = [
+      (false, "apple", "apple "),
+      (false, "jvhgw", "오늘 "),
+      (true, "apple", "apple "),
+    ]
+    for (startsInHangul, keys, expected) in cases {
+      let app = app(client: DeferredCompositionInputClient())
+      if startsInHangul {
+        app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+      }
+      typeWord(app, keys)
+      XCTAssertEqual(app.client.string, expected, keys)
+    }
+    // Ordinary Hangul commits once in Chromium, so the model must agree.
+    let plain = app(enabled: false, client: DeferredCompositionInputClient())
+    plain.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    typeWord(plain, "jfs")
+    XCTAssertEqual(plain.client.string, "안 ")
   }
 
   func testChangingClientsCommitsTheOriginalWordOnlyToItsOwner() {
