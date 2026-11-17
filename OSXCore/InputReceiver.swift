@@ -52,7 +52,8 @@ enum RomanLayoutAutocorrector {
   private static func isKnownEnglishWord(
     _ word: String, isKnownWord: (String) -> Bool
   ) -> Bool {
-    BuiltInTechnicalTermLexicon.contains(word) || isKnownWord(word)
+    BuiltInTechnicalTermLexicon.contains(word) || Configuration.shared.isLearnedRomanTerm(word)
+      || isKnownWord(word)
   }
 
   static func isKnownEnglishExpression(
@@ -75,6 +76,14 @@ enum RomanLayoutAutocorrector {
       let second = String(candidate[midpoint...])
       return first == second && isKnownEnglishWord(first, isKnownWord: isKnownWord)
     }
+  }
+
+  static func isTrustedTechnicalExpression(_ output: String) -> Bool {
+    let candidates = englishWordCandidates(output)
+    return !candidates.isEmpty
+      && candidates.allSatisfy {
+        BuiltInTechnicalTermLexicon.contains($0) || Configuration.shared.isLearnedRomanTerm($0)
+      }
   }
 
   static func isDomainExpression(_ output: String) -> Bool {
@@ -212,6 +221,48 @@ enum RomanLayoutAutocorrector {
     }
     return matches.count == 1 ? matches[0] : nil
   }
+
+  struct TeachingCandidate: Equatable {
+    let term: String
+    let replacement: String
+    let isWholeWord: Bool
+  }
+
+  static func teachingCandidate(keys: String, roman: String, keyboard: String) -> TeachingCandidate?
+  {
+    guard supportsHangulKeyboard(keyboard), keys.count == roman.count, keys.count >= 3,
+      roman.unicodeScalars.allSatisfy({
+        (65...90).contains($0.value) || (97...122).contains($0.value)
+      })
+    else { return nil }
+    let learnableSuffixes: Set<String> = [
+      "가", "과", "는", "도", "를", "만", "에", "에서", "에서는", "에게", "와", "으로", "은", "의", "이",
+    ]
+    var mixed: [(prefixLength: Int, value: TeachingCandidate)] = []
+    if keys.count >= 5 {
+      for split in 3...(keys.count - 2) {
+        let keyIndex = keys.index(keys.startIndex, offsetBy: split)
+        let romanIndex = roman.index(roman.startIndex, offsetBy: split)
+        let term = String(roman[..<romanIndex])
+        guard
+          let suffix = convert(
+            String(keys[keyIndex...]), keyboard: keyboard, minimumKeys: 2, minimumSyllables: 1),
+          suffix.unicodeScalars.allSatisfy({ (0xAC00...0xD7A3).contains($0.value) }),
+          learnableSuffixes.contains(suffix)
+        else { continue }
+        mixed.append(
+          (split, TeachingCandidate(term: term, replacement: term + suffix, isWholeWord: false)))
+      }
+    }
+    let known = mixed.filter {
+      BuiltInTechnicalTermLexicon.contains($0.value.term)
+        || Configuration.shared.isLearnedRomanTerm($0.value.term)
+    }
+    if known.count == 1 { return known[0].value }
+    if mixed.count == 1 { return mixed[0].value }
+    if mixed.count > 1 { return nil }
+    return TeachingCandidate(term: roman, replacement: roman, isWholeWord: true)
+  }
 }
 
 enum AutomaticLayoutChangeDirection {
@@ -239,8 +290,19 @@ public class InputReceiver: InputTextDelegate {
     let replacementRange: NSRange
     let previousMode: String
     let convertedMode: String
+    let romanOutput: String
+    let hangulKeyboard: String
+  }
+  private struct PendingAutomaticConversionUndo {
+    let original: String
+    let converted: String
+    let previousMode: String
+    let boundaryKey: KeyCode
+    let romanOutput: String
+    let hangulKeyboard: String
   }
   private var automaticConversionUndo: AutomaticConversionUndo?
+  private var pendingAutomaticConversionUndo: PendingAutomaticConversionUndo?
   var automaticLayoutChangeCommitted: (AutomaticLayoutChangeDirection) -> Void = { _ in }
   var automaticLayoutChangeUndone: () -> Void = {}
   var selectsClientInputModeForLayoutChanges: () -> Bool = {
@@ -264,6 +326,7 @@ public class InputReceiver: InputTextDelegate {
 
   func resetRomanAutocorrection() {
     automaticConversionUndo = nil
+    pendingAutomaticConversionUndo = nil
     resetHangulAutocorrection()
     guard composer.romanComposer.hasBufferedWord else {
       bufferedRomanStartLocation = nil
@@ -355,11 +418,26 @@ public class InputReceiver: InputTextDelegate {
             && candidates.allSatisfy {
               $0.count >= 4 || ($0.count == 3 && hasJamo)
             })
-      let converted =
-        hasHangul && !isRepeatedHangulJamo && eligible
+      let shouldKeepHangul = configuration.shouldKeepHangul(
+        keyboard: hangul.keyboardIdentifier, romanKeys: bufferedHangulRomanOutput)
+      let strongRomanEvidence =
+        isDomain
+        || RomanLayoutAutocorrector.isTrustedTechnicalExpression(bufferedHangulRomanOutput)
+      let romanConverted =
+        hasHangul && !isRepeatedHangulJamo && !shouldKeepHangul && eligible
+          && (hasJamo || strongRomanEvidence)
           && RomanLayoutAutocorrector.isKnownEnglishExpression(
             bufferedHangulRomanOutput, isKnownWord: romanAutocorrectionKnownEnglishWord)
         ? bufferedHangulRomanOutput : nil
+      let mixedConverted =
+        hasHangul && !isRepeatedHangulJamo && !shouldKeepHangul && romanConverted == nil
+        ? RomanLayoutAutocorrector.convertEnglishPrefixWithHangulSuffix(
+          keys: hangul.bufferedPhysicalKeys, roman: bufferedHangulRomanOutput,
+          keyboard: hangul.keyboardIdentifier,
+          isKnownWord: { configuration.isLearnedRomanTerm($0) }) : nil
+      let converted = romanConverted ?? mixedConverted
+      let romanOutput = bufferedHangulRomanOutput
+      let hangulKeyboard = hangul.keyboardIdentifier
       pendingRomanCommitReplacementRange = Self.bufferedRomanReplacementRange(
         markedRange: client.markedRange(), bufferedStartLocation: bufferedHangulStartLocation,
         selectionRange: client.selectedRange(), composedUTF16Length: (original as NSString).length)
@@ -368,12 +446,13 @@ public class InputReceiver: InputTextDelegate {
       bufferedHangulStartLocation = nil
       bufferedHangulRomanOutput = ""
       if let converted {
-        let start = pendingRomanCommitReplacementRange?.location
-        pendingAutomaticLayoutChange = .roman
-        _ = input(event: .changeLayout(.roman, false), client: client)
-        rememberAutomaticConversion(
-          original: original, converted: converted, start: start, previousMode: previousMode,
-          boundaryKey: key, client: client)
+        pendingAutomaticConversionUndo = PendingAutomaticConversionUndo(
+          original: original, converted: converted, previousMode: previousMode,
+          boundaryKey: key, romanOutput: romanOutput, hangulKeyboard: hangulKeyboard)
+        if romanConverted != nil {
+          pendingAutomaticLayoutChange = .roman
+          _ = input(event: .changeLayout(.roman, false), client: client)
+        }
       }
       return InputResult(processed: false, action: .commit)
     }
@@ -447,6 +526,8 @@ public class InputReceiver: InputTextDelegate {
       original.unicodeScalars.contains(where: {
         (0x1100...0x11FF).contains($0.value) || (0x3130...0x318F).contains($0.value)
       }),
+      !configuration.shouldKeepHangul(
+        keyboard: hangul.keyboardIdentifier, romanKeys: bufferedHangulRomanOutput + "."),
       let range = Self.bufferedRomanReplacementRange(
         markedRange: client.markedRange(), bufferedStartLocation: bufferedHangulStartLocation,
         selectionRange: client.selectedRange(), composedUTF16Length: (original as NSString).length)
@@ -458,11 +539,11 @@ public class InputReceiver: InputTextDelegate {
       bufferedHangulClient = nil
       bufferedHangulStartLocation = nil
       bufferedHangulRomanOutput = ""
+      pendingAutomaticConversionUndo = PendingAutomaticConversionUndo(
+        original: original + ".", converted: converted, previousMode: previousMode,
+        boundaryKey: key, romanOutput: converted, hangulKeyboard: hangul.keyboardIdentifier)
       pendingAutomaticLayoutChange = .roman
       _ = input(event: .changeLayout(.roman, false), client: client)
-      rememberAutomaticConversion(
-        original: original + ".", converted: converted, start: range.location,
-        previousMode: previousMode, boundaryKey: key, client: client)
       return .processed
     }
     bufferedHangulRomanOutput += output
@@ -569,12 +650,11 @@ public class InputReceiver: InputTextDelegate {
       bufferedRomanClient = nil
       bufferedRomanStartLocation = nil
       if let converted {
-        let start = pendingRomanCommitReplacementRange?.location
+        pendingAutomaticConversionUndo = PendingAutomaticConversionUndo(
+          original: original, converted: converted, previousMode: previousMode,
+          boundaryKey: key, romanOutput: original, hangulKeyboard: keyboard)
         pendingAutomaticLayoutChange = .hangul
         _ = input(event: .changeLayout(.hangul, false), client: client)
-        rememberAutomaticConversion(
-          original: original, converted: converted, start: start, previousMode: previousMode,
-          boundaryKey: key, client: client)
       }
       return InputResult(processed: false, action: .commit)
     }
@@ -742,7 +822,8 @@ public class InputReceiver: InputTextDelegate {
 
   private func rememberAutomaticConversion(
     original: String, converted: String, start: Int?, previousMode: String,
-    boundaryKey: KeyCode, client: IMKTextInput & IMKUnicodeTextInput
+    boundaryKey: KeyCode, romanOutput: String, hangulKeyboard: String,
+    client: IMKTextInput & IMKUnicodeTextInput
   ) {
     guard let start, start != NSNotFound,
       client.selectedRange() == NSRange(location: start + (converted as NSString).length, length: 0)
@@ -759,7 +840,8 @@ public class InputReceiver: InputTextDelegate {
       client: client as AnyObject, original: original + boundary,
       replacementRange: NSRange(
         location: start, length: (converted as NSString).length + (boundary as NSString).length),
-      previousMode: previousMode, convertedMode: composer.inputMode)
+      previousMode: previousMode, convertedMode: composer.inputMode,
+      romanOutput: romanOutput, hangulKeyboard: hangulKeyboard)
   }
 
   private func undoAutomaticConversion(
@@ -789,6 +871,12 @@ public class InputReceiver: InputTextDelegate {
       return false
     }
     client.insertText(undo.original, replacementRange: undo.replacementRange)
+    if RomanComposer.ComposerType(inputMode: undo.previousMode) == nil {
+      configuration.learnKeepHangul(
+        keyboard: undo.hangulKeyboard, romanKeys: undo.romanOutput)
+    } else {
+      configuration.learnRomanTerm(undo.romanOutput)
+    }
     romanAutocorrectionSuppressed = false
     hangulAutocorrectionSuppressed = false
     automaticLayoutChangeUndone()
@@ -809,14 +897,64 @@ public class InputReceiver: InputTextDelegate {
     _ = input(event: .changeLayout(layout, false), client: client)
   }
 
+  private func learnCurrentRomanWord(
+    client: IMKTextInput & IMKUnicodeTextInput
+  ) -> InputResult {
+    let configuration = Configuration.shared
+    let hangul = composer.hangulComposer
+    let marked = client.markedRange()
+    let selection = client.selectedRange()
+    let composedLength = (hangul.composedString as NSString).length
+    let bundle = Self.autocorrectionBundleIdentifier(
+      client: client.bundleIdentifier(),
+      frontmostApplication: NSWorkspace.shared.frontmostApplication?.bundleIdentifier)
+    let ownsMarkedSelection =
+      selection == marked
+      || (selection.length == 0 && selection.location == NSMaxRange(marked))
+    guard composer.delegate is HangulComposer, hangul.isBufferingWord,
+      bufferedHangulClient === (client as AnyObject),
+      configuration.usesHangulLayoutAutocorrection(for: bundle),
+      !romanAutocorrectionSecureInput(),
+      let ownedStart = bufferedHangulStartLocation, marked.location == ownedStart,
+      marked.length == composedLength, ownsMarkedSelection,
+      let candidate = RomanLayoutAutocorrector.teachingCandidate(
+        keys: hangul.bufferedPhysicalKeys, roman: bufferedHangulRomanOutput,
+        keyboard: hangul.keyboardIdentifier),
+      let range = Self.bufferedRomanReplacementRange(
+        markedRange: marked, bufferedStartLocation: ownedStart,
+        selectionRange: selection, composedUTF16Length: composedLength)
+    else { return .notProcessed }
+
+    configuration.learnRomanTerm(candidate.term)
+    configuration.forgetKeepHangul(
+      keyboard: hangul.keyboardIdentifier, romanKeys: bufferedHangulRomanOutput)
+    pendingRomanCommitReplacementRange = range
+    hangul.finishBufferedWord(replacingWith: candidate.replacement)
+    bufferedHangulClient = nil
+    bufferedHangulStartLocation = nil
+    bufferedHangulRomanOutput = ""
+    if candidate.isWholeWord {
+      pendingAutomaticLayoutChange = .roman
+      _ = input(event: .changeLayout(.roman, false), client: client)
+    } else {
+      inputting = true
+      _ = commitCompositionEvent(client)
+      inputting = false
+    }
+    return .processed
+  }
+
   func input(event: InputEvent, client sender: IMKTextInput & IMKUnicodeTextInput) -> InputResult {
+    if case .learnRomanWord = event { return learnCurrentRomanWord(client: sender) }
     if case .changeLayout(.search, _) = event {
       composer.hangulComposer.prepareBufferedWordForSearch()
       bufferedHangulClient = nil
       bufferedHangulStartLocation = nil
       bufferedHangulRomanOutput = ""
     }
+    let pendingUndo = pendingAutomaticConversionUndo
     resetRomanAutocorrection()
+    pendingAutomaticConversionUndo = pendingUndo
     switch event {
     case .changeLayout(let layout, let processed):
       let previousMode = composer.inputMode
@@ -854,6 +992,8 @@ public class InputReceiver: InputTextDelegate {
       if changedMode { controller.resumePhysicalLayoutSession(client: sender) }
 
       return processed ? .processed : .notProcessed
+    case .learnRomanWord:
+      return .notProcessed
     }
   }
 }
@@ -900,6 +1040,7 @@ extension InputReceiver {  // IMKServerInput
     // 커밋할 문자가 없으면 중단
     if commitString.isEmpty {
       pendingAutomaticLayoutChange = nil
+      pendingAutomaticConversionUndo = nil
       return false
     }
 
@@ -918,6 +1059,15 @@ extension InputReceiver {  // IMKServerInput
     }
     // NSLog("commit \(commitString) to \(range)")
     controller.client().insertText(commitString, replacementRange: range)
+
+    if let pending = pendingAutomaticConversionUndo {
+      pendingAutomaticConversionUndo = nil
+      rememberAutomaticConversion(
+        original: pending.original, converted: pending.converted,
+        start: range.location == NSNotFound ? nil : range.location,
+        previousMode: pending.previousMode, boundaryKey: pending.boundaryKey,
+        romanOutput: pending.romanOutput, hangulKeyboard: pending.hangulKeyboard, client: sender)
+    }
 
     if let direction = pendingAutomaticLayoutChange {
       pendingAutomaticLayoutChange = nil

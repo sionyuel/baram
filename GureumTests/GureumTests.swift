@@ -1161,6 +1161,7 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
   func testImmediateBackspaceRestoresAutomaticConversionAndPreviousMode() {
     for (boundary, key) in [(" ", KeyCode.space), ("\n", .return), ("\t", .tab)] {
       for startsInHangul in [false, true] {
+        Configuration.shared.resetPersonalAutocorrectionLearning()
         let app = app()
         let previousMode =
           startsInHangul
@@ -1341,6 +1342,21 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
     }
   }
 
+  func testCompleteHangulWinsOverAWeakSystemDictionaryMatch() {
+    for (keys, hangul) in [("llvx", "쪽"), ("ktx", "걱")] {
+      let app = app()
+      app.controller.receiver.romanAutocorrectionKnownEnglishWord = { $0 == keys }
+      app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+      app.inputKeys(keys)
+      XCTAssertEqual(app.client.string, hangul)
+
+      app.inputText(" ", key: .space)
+
+      XCTAssertEqual(app.client.string, hangul + " ")
+      XCTAssertFalse(isRoman(app))
+    }
+  }
+
   func testReverseCorrectionStillRestoresEnglishWithIncompleteJamo() {
     for word in ["apple", "hello", "swift", "paseo", "compact", "world", "haezoom.com"] {
       let app = app()
@@ -1407,6 +1423,166 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
     for word in ["kube", "aws", "tailscalex"] {
       XCTAssertFalse(RomanLayoutAutocorrector.isKnownEnglishExpression(word) { _ in false }, word)
     }
+  }
+
+  func testExplicitLearningConvertsMixedWordAndPersistsTheRomanTerm() {
+    let app = app()
+    app.controller.receiver.romanAutocorrectionKnownEnglishWord = { _ in false }
+    app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    Configuration.shared.learnKeepHangul(keyboard: "3f", romanKeys: "githubjcnt")
+    app.inputKeys("githubjcnt")
+    XCTAssertNotEqual(app.client.string, "github에서")
+
+    XCTAssertTrue(app.inputKey(.ansiL, modifiers: [.control, .command]))
+
+    XCTAssertEqual(app.client.string, "github에서")
+    XCTAssertTrue(Configuration.shared.isLearnedRomanTerm("GitHub"))
+    XCTAssertFalse(isRoman(app))
+
+    let next = self.app()
+    next.controller.receiver.romanAutocorrectionKnownEnglishWord = { _ in false }
+    next.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    next.inputKeys("githubjcnt")
+    next.inputText(" ", key: .space)
+    XCTAssertEqual(next.client.string, "github에서 ")
+    XCTAssertFalse(isRoman(next))
+  }
+
+  func testLearningShortcutSurvivesRealModifierFlagEvents() throws {
+    let app = app()
+    app.controller.receiver.romanAutocorrectionKnownEnglishWord = { _ in false }
+    app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    app.inputKeys("githubjcnt")
+    func event(
+      _ type: NSEvent.EventType, keyCode: UInt16, modifiers: NSEvent.ModifierFlags,
+      characters: String = ""
+    ) -> NSEvent {
+      NSEvent.keyEvent(
+        with: type, location: .zero, modifierFlags: modifiers, timestamp: 0,
+        windowNumber: 0, context: nil, characters: characters,
+        charactersIgnoringModifiers: characters, isARepeat: false, keyCode: keyCode)!
+    }
+    _ = app.controller.handle(
+      event(.flagsChanged, keyCode: UInt16(KeyCode.control.rawValue), modifiers: .control),
+      client: app.client)
+    _ = app.controller.handle(
+      event(
+        .flagsChanged, keyCode: UInt16(KeyCode.command.rawValue),
+        modifiers: [.control, .command]), client: app.client)
+
+    XCTAssertTrue(
+      app.controller.handle(
+        event(
+          .keyDown, keyCode: UInt16(KeyCode.ansiL.rawValue),
+          modifiers: [.control, .command], characters: "l"), client: app.client))
+    XCTAssertEqual(app.client.string, "github에서")
+  }
+
+  func testExplicitLearningRejectsMovedCaretAndAmbiguousUnknownSuffix() {
+    let app = app()
+    app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    app.inputKeys("githubjcnt")
+    let original = app.client.string
+    app.client.setSelectedRange(NSRange(location: 0, length: 0))
+    XCTAssertFalse(app.inputKey(.ansiL, modifiers: [.control, .command]))
+    XCTAssertEqual(app.client.string, original)
+    XCTAssertFalse(Configuration.shared.isLearnedRomanTerm("github"))
+
+    XCTAssertEqual(
+      RomanLayoutAutocorrector.teachingCandidate(
+        keys: "githubjcnthgs", roman: "githubjcnthgs", keyboard: "3f"),
+      .init(term: "github", replacement: "github에서는", isWholeWord: false))
+    XCTAssertNil(
+      RomanLayoutAutocorrector.teachingCandidate(
+        keys: "foojcnthgs", roman: "foojcnthgs", keyboard: "3f"))
+  }
+
+  func testExplicitLearningCanTeachAWholeUnknownRomanTerm() {
+    let app = app()
+    app.controller.receiver.romanAutocorrectionKnownEnglishWord = { _ in false }
+    app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    app.inputKeys("exampleword")
+
+    XCTAssertTrue(app.inputKey(.ansiL, modifiers: [.control, .command]))
+
+    XCTAssertEqual(app.client.string, "exampleword")
+    XCTAssertTrue(Configuration.shared.isLearnedRomanTerm("exampleword"))
+    XCTAssertTrue(isRoman(app))
+
+    let next = self.app()
+    next.controller.receiver.romanAutocorrectionKnownEnglishWord = { _ in false }
+    next.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    next.inputKeys("exampleword")
+    next.inputText(" ", key: .space)
+    XCTAssertEqual(next.client.string, "exampleword ")
+    XCTAssertTrue(isRoman(next))
+  }
+
+  func testUndoLearnsAnExactKeepHangulException() {
+    let first = app()
+    first.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    first.inputKeys("tailscale")
+    let original = first.client.string
+    first.inputText(" ", key: .space)
+    XCTAssertEqual(first.client.string, "tailscale ")
+    XCTAssertTrue(first.inputDelete())
+    XCTAssertEqual(first.client.string, original + " ")
+
+    let second = app()
+    second.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    second.inputKeys("tailscale")
+    second.inputText(" ", key: .space)
+    XCTAssertEqual(second.client.string, original + " ")
+    XCTAssertFalse(isRoman(second))
+  }
+
+  func testPeriodUndoLearnsAKeepHangulException() {
+    let first = app()
+    first.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    first.inputKeys("haezoom.")
+    XCTAssertEqual(first.client.string, "haezoom.")
+    XCTAssertTrue(first.inputDelete())
+    let original = first.client.string
+
+    let second = app()
+    second.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    second.inputKeys("haezoom.")
+    XCTAssertEqual(second.client.string, original)
+    XCTAssertFalse(isRoman(second))
+  }
+
+  func testMixedAutomaticConversionCanBeUndoneAndLearnedAsHangul() {
+    let first = app()
+    first.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    first.inputKeys("githubjcnt")
+    let original = first.client.string
+    first.inputText(" ", key: .space)
+    XCTAssertEqual(first.client.string, "github에서 ")
+    XCTAssertTrue(first.inputDelete())
+    XCTAssertEqual(first.client.string, original + " ")
+
+    let second = app()
+    second.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    second.inputKeys("githubjcnt")
+    second.inputText(" ", key: .space)
+    XCTAssertEqual(second.client.string, original + " ")
+  }
+
+  func testPersonalLearningIsBoundedAndResettable() {
+    for index in 0...200 {
+      let first = Character(UnicodeScalar(97 + index / 26)!)
+      let second = Character(UnicodeScalar(97 + index % 26)!)
+      Configuration.shared.learnRomanTerm("term\(first)\(second)", now: Double(index))
+    }
+    XCTAssertEqual(Configuration.shared.learnedRomanTerms.count, 200)
+    XCTAssertFalse(Configuration.shared.isLearnedRomanTerm("termaa"))
+    XCTAssertTrue(Configuration.shared.isLearnedRomanTerm("termhs"))
+    Configuration.shared.learnKeepHangul(keyboard: "3f", romanKeys: "sample")
+
+    Configuration.shared.resetPersonalAutocorrectionLearning()
+
+    XCTAssertTrue(Configuration.shared.learnedRomanTerms.isEmpty)
+    XCTAssertTrue(Configuration.shared.keepHangulExceptions.isEmpty)
   }
 
   func testReverseCorrectionRestoresTailscaleAndImmediateBackspaceRestoresHangul() {
@@ -2752,7 +2928,7 @@ class PreferencesFormTests: IsolatedChordConfigurationTests {
     let navigation = try XCTUnwrap(window.toolbar?.items.first as? NSToolbarItemGroup)
     XCTAssertEqual(navigation.subitems.count, 3)
     let popups = views.compactMap { $0 as? NSPopUpButton }
-    XCTAssertEqual(popups.count, identity.isBaram ? 5 : 4)
+    XCTAssertEqual(popups.count, identity.isBaram ? 6 : 4)
     XCTAssertTrue(popups.allSatisfy { $0.controlSize == .small })
     XCTAssertTrue(popups.allSatisfy { $0 is SystemSettingsPopUpButton })
     let option = try XCTUnwrap(popups.first { $0.accessibilityLabel() == "Option 키 동작" })
@@ -2950,7 +3126,9 @@ class PreferencesFormTests: IsolatedChordConfigurationTests {
   private func assertPageKeyLoops(identity: InputMethodIdentity) throws {
     let (window, child) = try form(identity: identity)
     var advanced = ["두벌식 종성 결합", "조합 상태 유지", "Esc로 로마자 전환"]
-    if identity.isBaram { advanced.append("실험 · 자동 한영 전환") }
+    if identity.isBaram {
+      advanced.append(contentsOf: ["실험 · 자동 한영 전환", "개인 교정 학습"])
+    }
     if identity.supportsPhysicalChording {
       advanced.append(contentsOf: ["동시에 누른 키 묶기", "키 감지 권한 허용"])
     }
@@ -2961,7 +3139,10 @@ class PreferencesFormTests: IsolatedChordConfigurationTests {
         "모아치기", "세벌식 정석 조합", "` 키 문자", "Shift+` 키 문자", "키보드 레이아웃",
         "Option 키 동작",
       ],
-      ["한글 ↔ 로마자", "한자 및 이모지", "로마자로 전환", "한글로 전환", "오른쪽 전환 키", "키 감지 권한 열기", "키보드 열기"],
+      [
+        "한글 ↔ 로마자", "한자 및 이모지", "로마자로 전환", "한글로 전환",
+      ] + (identity.isBaram ? ["현재 단어를 영문으로 학습"] : [])
+        + ["오른쪽 전환 키", "키 감지 권한 열기", "키보드 열기"],
       advanced,
     ]
     for index in 0..<3 {

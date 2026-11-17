@@ -117,6 +117,13 @@ final class HangulComposer: NSObject, Composer {
   private var _composedString: String
   private(set) var isBufferingWord = false
   private var bufferedKeys: [(String?, KeyCode, NSEvent.ModifierFlags)] = []
+  var bufferedPhysicalKeys: String {
+    bufferedKeys.compactMap { _, key, modifiers in
+      let map = modifiers.contains(.shift) ? keyMapUpper : keyMapLower
+      guard key.isKeyMappable, map.indices.contains(key.rawValue) else { return nil }
+      return map[key.rawValue]
+    }.joined()
+  }
   /// Physical-key positions where the previous syllable had already been completed.
   /// Keep these when replay reaches a boundary so Backspace cannot reopen that syllable.
   private var bufferedSyllableBoundaries: [Int] = []

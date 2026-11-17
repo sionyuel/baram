@@ -79,6 +79,9 @@ Mac Studio와 MacBook에서 각각 수행합니다.
 - [ ] 토스트 자연 종료·빠른 취소·교체 시 깜빡임 없음
 - [ ] `ㅎㅎㅎㅎ `, `ㅋㅋㅋㅋ `, `ㅠㅠ `가 로마자로 역변환되지 않음
 - [ ] 전화번호·인증번호 숫자 입력 뒤 marked range가 남지 않아 앱의 자동 하이픈과 충돌하지 않음
+- [ ] `Control+Command+L`로 현재 단어 영문 학습, 다음 입력부터 자동 적용
+- [ ] 자동변환 Backspace 취소가 자판별 한글 유지 예외로 저장됨
+- [ ] 고급 설정에서 개인 학습 항목 개별 삭제·전체 초기화
 
 ## 서명·공증 게이트
 
@@ -97,7 +100,7 @@ Mac Studio와 MacBook에서 각각 수행합니다.
 
 - [ ] 이름·상표·역사적 Baram 관계 문구 승인
 - [ ] Baram 마크·앱 아이콘 배포 라이선스 승인
-- [ ] GitHub prerelease와 `Baram-1.0.0-rc.8` 태그 생성
+- [ ] GitHub prerelease와 `Baram-1.0.0-rc.9` 태그 생성
 - [ ] ZIP/PKG/체크섬/대응 소스/릴리스 노트 업로드
 - [ ] `baram.sionyuel.com`의 HTTPS·DNS·호스팅 검증
 - [ ] 다운로드 URL과 SHA-256을 사이트에 연결

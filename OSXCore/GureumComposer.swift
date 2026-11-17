@@ -280,6 +280,11 @@ extension GureumComposer {
 
     // Handle SpecialKeyCode first
     let inputKey = (keyCode, inputModifier)
+    if delegate is HangulComposer, let shortcutKey = configuration.learnRomanWordKey,
+      shortcutKey == inputKey
+    {
+      return .learnRomanWord
+    }
     if let shortcutKey = configuration.inputModeExchangeKey, shortcutKey == inputKey {
       return .changeLayout(.toggle, true)
     }

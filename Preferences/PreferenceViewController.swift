@@ -467,6 +467,8 @@ final class PreferenceViewController: NSViewController, NSTextFieldDelegate {
   @IBOutlet private var inputModeEnglishShortcutView: MASShortcutView!
   /// 한글로 바꾸기 단축키.
   @IBOutlet private var inputModeKoreanShortcutView: MASShortcutView!
+  private let learnRomanShortcutView = GureumShortcutView(frame: .zero)
+  private var personalLearningMenu: SystemSettingsPopUpButton!
 
   /// 업데이트 알림 받기
   @IBOutlet private var updateNotificationButton: NSButton!
@@ -550,6 +552,7 @@ final class PreferenceViewController: NSViewController, NSTextFieldDelegate {
     inputModeSearchShortcutView.shortcutValidator = shortcutValidator
     inputModeEnglishShortcutView.shortcutValidator = shortcutValidator
     inputModeKoreanShortcutView.shortcutValidator = shortcutValidator
+    learnRomanShortcutView.shortcutValidator = shortcutValidator
 
     loadShortcutValues()
     setupShortcutViewValueChangeEvents()
@@ -695,21 +698,31 @@ final class PreferenceViewController: NSViewController, NSTextFieldDelegate {
     #endif
     let inputPage = page(inputSections)
 
+    var inputShortcutRows = [
+      settingRow(
+        "한글 ↔ 로마자",
+        control: shortcutControl(inputModeExchangeShortcutView, label: "한글 ↔ 로마자")),
+      settingRow(
+        "한자 및 이모지",
+        control: shortcutControl(inputModeSearchShortcutView, label: "한자 및 이모지")),
+      settingRow(
+        "로마자로 전환", control: shortcutControl(inputModeEnglishShortcutView, label: "로마자로 전환")),
+      settingRow(
+        "한글로 전환", control: shortcutControl(inputModeKoreanShortcutView, label: "한글로 전환")),
+    ]
+    if productIdentity.isBaram {
+      inputShortcutRows.append(
+        settingRow(
+          "현재 단어를 영문으로 학습",
+          control: shortcutControl(learnRomanShortcutView, label: "현재 단어를 영문으로 학습")))
+    }
     let shortcutsPage = page([
       section(
         "입력 전환",
-        rows: [
-          settingRow(
-            "한글 ↔ 로마자",
-            control: shortcutControl(inputModeExchangeShortcutView, label: "한글 ↔ 로마자")),
-          settingRow(
-            "한자 및 이모지",
-            control: shortcutControl(inputModeSearchShortcutView, label: "한자 및 이모지")),
-          settingRow(
-            "로마자로 전환", control: shortcutControl(inputModeEnglishShortcutView, label: "로마자로 전환")),
-          settingRow(
-            "한글로 전환", control: shortcutControl(inputModeKoreanShortcutView, label: "한글로 전환")),
-        ]),
+        rows: inputShortcutRows,
+        explanation: productIdentity.isBaram
+          ? helperText("학습 단축키는 현재 밑줄로 조합 중인 단어에만 적용됩니다. 기본값은 Control+Command+L입니다.")
+          : nil),
       section(
         "오른쪽 키 전환",
         rows: [
@@ -753,6 +766,19 @@ final class PreferenceViewController: NSViewController, NSTextFieldDelegate {
       : "선택한 Vim·터미널·코드 편집기에서만 Esc 또는 Control+[로 한글 조합을 끝내고 로마자로 전환합니다."
     advancedSections.append(
       section("앱별 동작", rows: applicationRows, explanation: helperText(applicationHelp)))
+    if productIdentity.isBaram {
+      personalLearningMenu = SystemSettingsPopUpButton(frame: .zero, pullsDown: false)
+      personalLearningMenu.target = self
+      personalLearningMenu.action = #selector(personalLearningMenuChanged(_:))
+      styleMenu(personalLearningMenu, label: "개인 교정 학습")
+      refreshPersonalLearningMenu()
+      advancedSections.append(
+        section(
+          "개인 교정 학습",
+          rows: [settingRow("학습 내용", control: personalLearningMenu)],
+          explanation: helperText(
+            "영문 학습 단축키와 자동변환 직후 Backspace 선택을 이 Mac에만 저장합니다. 항목을 선택하면 개별 삭제할 수 있습니다.")))
+    }
     #if !USE_PREFPANE
       if productIdentity.supportsPhysicalChording {
         let toggle = NSSwitch()
@@ -845,6 +871,7 @@ final class PreferenceViewController: NSViewController, NSTextFieldDelegate {
         strict: configuration.hangulForceStrictCombinationRule)
       keyboardPreview?.reload(
         layoutIdentifier: previewLayout.identifier, layoutName: previewLayout.name)
+      if productIdentity.isBaram { refreshPersonalLearningMenu() }
       if productIdentity.supportsPhysicalChording { refreshPhysicalChordControls() }
     }
 
@@ -1112,6 +1139,54 @@ final class PreferenceViewController: NSViewController, NSTextFieldDelegate {
       configuration.hangulLayoutAutocorrectionApplications = [:]
     default:
       break
+    }
+  }
+
+  private func refreshPersonalLearningMenu() {
+    guard let personalLearningMenu else { return }
+    let terms = configuration.learnedRomanTerms
+    let exceptions = configuration.keepHangulExceptions
+    personalLearningMenu.removeAllItems()
+    let count = terms.count + exceptions.count
+    personalLearningMenu.addItem(withTitle: count == 0 ? "학습 내용 없음" : "\(count)개 학습")
+    personalLearningMenu.lastItem?.isEnabled = false
+    if !terms.isEmpty {
+      personalLearningMenu.menu?.addItem(.separator())
+      for (key, term) in terms.sorted(by: {
+        $0.value.localizedCaseInsensitiveCompare($1.value) == .orderedAscending
+      }) {
+        let item = NSMenuItem(title: "영문 · \(term) 지우기", action: nil, keyEquivalent: "")
+        item.representedObject = "term:" + key
+        personalLearningMenu.menu?.addItem(item)
+      }
+    }
+    if !exceptions.isEmpty {
+      personalLearningMenu.menu?.addItem(.separator())
+      for key in exceptions.keys.sorted() {
+        let value = Configuration.keepHangulDisplayValue(key)
+        let item = NSMenuItem(title: "한글 유지 · \(value) 지우기", action: nil, keyEquivalent: "")
+        item.representedObject = "keep:" + key
+        personalLearningMenu.menu?.addItem(item)
+      }
+    }
+    if count > 0 {
+      personalLearningMenu.menu?.addItem(.separator())
+      let reset = NSMenuItem(title: "학습 전체 지우기", action: nil, keyEquivalent: "")
+      reset.representedObject = "reset"
+      personalLearningMenu.menu?.addItem(reset)
+    }
+    personalLearningMenu.selectItem(at: 0)
+  }
+
+  @objc private func personalLearningMenuChanged(_ sender: NSPopUpButton) {
+    defer { refreshPersonalLearningMenu() }
+    guard let action = sender.selectedItem?.representedObject as? String else { return }
+    if action == "reset" {
+      configuration.resetPersonalAutocorrectionLearning()
+    } else if action.hasPrefix("term:") {
+      configuration.removeLearnedRomanTerm(String(action.dropFirst(5)))
+    } else if action.hasPrefix("keep:") {
+      configuration.removeKeepHangulException(String(action.dropFirst(5)))
     }
   }
 
@@ -1482,6 +1557,12 @@ extension PreferenceViewController {
     } else {
       inputModeKoreanShortcutView.shortcutValue = nil
     }
+    if let key = configuration.learnRomanWordKey {
+      learnRomanShortcutView.shortcutValue = MASShortcut(
+        keyCode: key.0.rawValue, modifierFlags: key.1)
+    } else {
+      learnRomanShortcutView.shortcutValue = nil
+    }
   }
 
   fileprivate func setupShortcutViewValueChangeEvents() {
@@ -1503,6 +1584,9 @@ extension PreferenceViewController {
 
     inputModeKoreanShortcutView.shortcutValueChange = { sender in
       self.configuration.inputModeKoreanKey = masShortcutToShortcut(sender.shortcutValue)
+    }
+    learnRomanShortcutView.shortcutValueChange = { sender in
+      self.configuration.learnRomanWordKey = masShortcutToShortcut(sender.shortcutValue)
     }
   }
 

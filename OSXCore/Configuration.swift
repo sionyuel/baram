@@ -90,6 +90,8 @@ enum ConfigurationName {
   public static let inputModeEnglishKey = "InputModeEnglishKey"
   /// 한글로 바꾸기 단축키.
   public static let inputModeKoreanKey = "InputModeKoreanKey"
+  /// 현재 조합 중인 한글 단어를 로마자로 학습하는 단축키.
+  public static let learnRomanWordKey = "LearnRomanWordKey"
   /// 옵션 키 동작.
   public static let optionKeyBehavior = "OptionKeyBehavior"
   /// 기본 키보드 레이아웃.
@@ -105,6 +107,11 @@ enum ConfigurationName {
   /// 완성형 세벌식 자동변환을 제외 앱 이외의 모든 앱에서 사용.
   public static let hangulLayoutAutocorrectionAllApplications =
     "HangulLayoutAutocorrectionAllApplications"
+  /// 사용자가 직접 학습한 로마자 용어와 마지막 사용 시각.
+  public static let learnedRomanTerms = "LearnedRomanTerms"
+  public static let learnedRomanTermDates = "LearnedRomanTermDates"
+  /// 자동변환 취소로 학습한 자판별 한글 유지 키열과 마지막 사용 시각.
+  public static let keepHangulExceptions = "KeepHangulExceptions"
   /// 한글 입력기일 때 역따옴표(`)로 원화 기호(₩) 입력.
   public static let hangulWonCurrencySymbolForBackQuote = "HangulWonCurrencySymbolForBackQuote"
   /// 한글 입력기에서 물리적 역따옴표(`) 키로 입력할 사용자 지정 문자.
@@ -189,6 +196,8 @@ public class Configuration: UserDefaults {
 
       ConfigurationName.inputModeSearchKey: Configuration.convertShortcutToConfiguration(
         (.return, .option)),
+      ConfigurationName.learnRomanWordKey: Configuration.convertShortcutToConfiguration(
+        (.ansiL, [.control, .command])),
       ConfigurationName.optionKeyBehavior: 1,
       ConfigurationName.overridingKeyboardName: "com.apple.keylayout.ABC",
 
@@ -339,6 +348,11 @@ public class Configuration: UserDefaults {
     }
   }
 
+  public var learnRomanWordKey: Shortcut? {
+    get { shortcut(forKey: ConfigurationName.learnRomanWordKey) }
+    set { setShortcut(newValue, forKey: ConfigurationName.learnRomanWordKey) }
+  }
+
   /// Esc 키로 로마자 자판으로 전환 (vi 모드).
   public var romanModeByEscapeKey: Bool {
     get {
@@ -402,6 +416,106 @@ public class Configuration: UserDefaults {
     guard !excluded.contains(bundleIdentifier) else { return false }
     return hangulLayoutAutocorrectionAllApplications
       || hangulLayoutAutocorrectionApplications[bundleIdentifier] != nil
+  }
+
+  private static let personalLearningLimit = 200
+  private static let learningSeparator = "\u{001F}"
+
+  public var learnedRomanTerms: [String: String] {
+    dictionary(forKey: ConfigurationName.learnedRomanTerms)?.reduce(into: [:]) { result, entry in
+      guard let term = entry.value as? String else { return }
+      result[entry.key] = term
+    } ?? [:]
+  }
+
+  public var keepHangulExceptions: [String: Double] {
+    dictionary(forKey: ConfigurationName.keepHangulExceptions)?.reduce(into: [:]) {
+      result, entry in
+      guard let date = entry.value as? Double else { return }
+      result[entry.key] = date
+    } ?? [:]
+  }
+
+  public func isLearnedRomanTerm(_ word: String) -> Bool {
+    learnedRomanTerms[word.lowercased()] != nil
+  }
+
+  public func learnRomanTerm(_ word: String, now: TimeInterval = Date().timeIntervalSince1970) {
+    guard (3...64).contains(word.count),
+      word.unicodeScalars.allSatisfy({
+        (65...90).contains($0.value) || (97...122).contains($0.value)
+      })
+    else { return }
+    let key = word.lowercased()
+    var terms = learnedRomanTerms
+    var dates =
+      dictionary(forKey: ConfigurationName.learnedRomanTermDates) as? [String: Double] ?? [:]
+    terms[key] = word
+    dates[key] = now
+    trimLearning(&terms, dates: &dates)
+    set(terms, forKey: ConfigurationName.learnedRomanTerms)
+    set(dates, forKey: ConfigurationName.learnedRomanTermDates)
+  }
+
+  public func removeLearnedRomanTerm(_ key: String) {
+    var terms = learnedRomanTerms
+    var dates =
+      dictionary(forKey: ConfigurationName.learnedRomanTermDates) as? [String: Double] ?? [:]
+    terms.removeValue(forKey: key)
+    dates.removeValue(forKey: key)
+    set(terms, forKey: ConfigurationName.learnedRomanTerms)
+    set(dates, forKey: ConfigurationName.learnedRomanTermDates)
+  }
+
+  public func learnKeepHangul(
+    keyboard: String, romanKeys: String, now: TimeInterval = Date().timeIntervalSince1970
+  ) {
+    guard !keyboard.isEmpty, !romanKeys.isEmpty else { return }
+    var values = keepHangulExceptions
+    values[Self.keepHangulKey(keyboard: keyboard, romanKeys: romanKeys)] = now
+    if values.count > Self.personalLearningLimit,
+      let oldest = values.min(by: { $0.value < $1.value })?.key
+    {
+      values.removeValue(forKey: oldest)
+    }
+    set(values, forKey: ConfigurationName.keepHangulExceptions)
+  }
+
+  public func shouldKeepHangul(keyboard: String, romanKeys: String) -> Bool {
+    keepHangulExceptions[Self.keepHangulKey(keyboard: keyboard, romanKeys: romanKeys)] != nil
+  }
+
+  public func removeKeepHangulException(_ key: String) {
+    var values = keepHangulExceptions
+    values.removeValue(forKey: key)
+    set(values, forKey: ConfigurationName.keepHangulExceptions)
+  }
+
+  public func forgetKeepHangul(keyboard: String, romanKeys: String) {
+    removeKeepHangulException(Self.keepHangulKey(keyboard: keyboard, romanKeys: romanKeys))
+  }
+
+  public func resetPersonalAutocorrectionLearning() {
+    removeObject(forKey: ConfigurationName.learnedRomanTerms)
+    removeObject(forKey: ConfigurationName.learnedRomanTermDates)
+    removeObject(forKey: ConfigurationName.keepHangulExceptions)
+  }
+
+  public static func keepHangulDisplayValue(_ key: String) -> String {
+    key.components(separatedBy: learningSeparator).dropFirst().joined(separator: learningSeparator)
+  }
+
+  private static func keepHangulKey(keyboard: String, romanKeys: String) -> String {
+    keyboard + learningSeparator + romanKeys.lowercased()
+  }
+
+  private func trimLearning(_ terms: inout [String: String], dates: inout [String: Double]) {
+    while terms.count > Self.personalLearningLimit,
+      let oldest = dates.min(by: { $0.value < $1.value })?.key
+    {
+      terms.removeValue(forKey: oldest)
+      dates.removeValue(forKey: oldest)
+    }
   }
 
   /// 한글 입력기일 때 역따옴표(`)로 원화 기호(₩) 입력.

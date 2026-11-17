@@ -64,6 +64,7 @@ enum ChangeLayout {
 
 enum InputEvent {
   case changeLayout(ChangeLayout, Bool)
+  case learnRomanWord
 }
 
 struct ChordControllerEnvironment {
@@ -475,7 +476,17 @@ extension InputController {  // IMKServerInputHandleEvent
         event, -1, event.modifierFlags.rawValue, client.bundleIdentifier() ?? "(no client bundle)")
       let changed = lastFlags.symmetricDifference(event.modifierFlags)
       if !changed.intersection([.command, .control, .option, .function, .capsLock]).isEmpty {
-        receiver.resetRomanAutocorrection()
+        let inputModifiers = event.modifierFlags
+          .intersection(.deviceIndependentFlagsMask)
+          .subtracting(.capsLock)
+        let learningModifiers = Configuration.shared.learnRomanWordKey?.1
+          .intersection(.deviceIndependentFlagsMask)
+          .subtracting(.capsLock)
+        let isPreparingLearningShortcut =
+          receiver.romanAutocorrectionAvailable()
+          && !inputModifiers.isEmpty
+          && learningModifiers.map { inputModifiers.subtracting($0).isEmpty } == true
+        if !isPreparingLearningShortcut { receiver.resetRomanAutocorrection() }
         chordCoordinator?.flushBoundary(.command)
       }
       lastFlags = event.modifierFlags
