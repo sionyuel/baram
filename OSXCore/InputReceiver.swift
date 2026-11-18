@@ -706,15 +706,16 @@ public class InputReceiver: InputTextDelegate {
       cancelComposition()
     }
 
-    let commited = commitCompositionEvent(sender)  // 조합 된 문자 반영
+    commitCompositionEvent(sender)  // 조합 된 문자 반영
     if result.action == .commit {
       return result
     }
     let hasComposedString = !_internalComposedString.isEmpty
     let selectionRange = controller.selectionRange()
     hasSelectionRange = selectionRange.location != NSNotFound && selectionRange.length > 0
-    if commited || controller.selectionRange().length > 0 || hadComposedString || hasComposedString
-    {
+    // A commit made outside any composition needs no marked-text update: Chrome applies the empty
+    // update as a stale caret move, putting the next character before the one just typed.
+    if controller.selectionRange().length > 0 || hadComposedString || hasComposedString {
       updateComposition()  // 조합 중인 문자 반영
     }
 
