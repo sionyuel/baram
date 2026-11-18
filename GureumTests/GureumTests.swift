@@ -227,6 +227,23 @@ class GureumTests: XCTestCase {
     }
   }
 
+  func testCharactersCommittedOutsideACompositionKeepTheCaretAfterThem() {
+    let app: VirtualApp = ModerateApp(client: CommitThenEmptyMarkClient())
+    app.controller.setValue(
+      GureumInputSource.han3Final.rawValue, forTag: kTextServiceInputModePropertyTag,
+      client: app.client)
+    app.inputKeys("jfs")
+    app.inputText(" ", key: .space)
+    // Sent like IMK does: VirtualApp's inputText also forces a composition update after each key.
+    for (text, key) in [("J", KeyCode.ansiJ), (">", .ansiPeriod)] {
+      XCTAssertTrue(
+        app.controller.inputText(
+          text, key: key.rawValue, modifiers: Int(NSEvent.ModifierFlags.shift.rawValue),
+          client: app.client))
+    }
+    XCTAssertEqual(app.client.string, "안 1.")
+  }
+
   func testHanjaSyllable() {
     for app in apps {
       app.client.string = ""
@@ -1125,8 +1142,8 @@ private final class UnreadableRomanInputClient: MockInputClient {
 /// range replaces that composition (one compositionend). A commit with an explicit range is
 /// applied at once and the composition is never ended, so xterm.js sends the word twice; the
 /// terminal cannot take sent data back.
-private final class DeferredCompositionInputClient: MockInputClient {
-  private var hiddenComposition: NSRange?
+private class DeferredCompositionInputClient: MockInputClient {
+  fileprivate var hiddenComposition: NSRange?
   private var unmarking = false
 
   override func markedRange() -> NSRange {
@@ -1166,6 +1183,55 @@ private final class DeferredCompositionInputClient: MockInputClient {
       ? composition : NSRange(location: length(), length: 0)
     textStorage?.replaceCharacters(in: target, with: text)
     setSelectedRange(NSRange(location: target.location + (text as NSString).length, length: 0))
+  }
+}
+
+/// Models Chrome's text field (on top of its deferred composition) as recorded with a probe page on 2026-11-18. When a character is
+/// committed with nothing marked, an empty marked-text update that follows is applied as a caret
+/// move to where that commit started, so the next character lands before it ("1." became ".1").
+/// Commits that end a composition were not affected.
+private final class CommitThenEmptyMarkClient: DeferredCompositionInputClient {
+  private var lastCommitStart: Int?
+
+  override func insertText(_ string: Any, replacementRange: NSRange) {
+    guard !hasMarkedText(), hiddenComposition == nil, replacementRange.location == NSNotFound
+    else {
+      lastCommitStart = nil
+      super.insertText(string, replacementRange: replacementRange)
+      return
+    }
+    // With nothing marked the text goes to the caret, not to NSTextView's empty marked range.
+    let caret = selectedRange()
+    unmarkText()
+    lastCommitStart = caret.location
+    super.insertText(string, replacementRange: caret)
+  }
+
+  override func setMarkedText(
+    _ string: Any, selectedRange: NSRange, replacementRange: NSRange
+  ) {
+    let start = lastCommitStart
+    super.setMarkedText(string, selectedRange: selectedRange, replacementRange: replacementRange)
+    moveCaretBack(to: start, after: string)
+  }
+
+  override func setMarkedText(
+    _ string: Any!, selectionRange: NSRange, replacementRange: NSRange
+  ) {
+    let start = lastCommitStart
+    super.setMarkedText(string, selectionRange: selectionRange, replacementRange: replacementRange)
+    moveCaretBack(to: start, after: string)
+  }
+
+  private func moveCaretBack(to start: Int?, after string: Any?) {
+    let text = (string as? NSAttributedString)?.string ?? string as? String ?? ""
+    guard text.isEmpty, !hasMarkedText(), hiddenComposition == nil, let start else {
+      lastCommitStart = nil
+      return
+    }
+    lastCommitStart = start
+    unmarkText()
+    setSelectedRange(NSRange(location: start, length: 0))
   }
 }
 
