@@ -246,11 +246,21 @@ public class InputReceiver: InputTextDelegate {
   private struct AutomaticConversionUndo {
     weak var client: AnyObject?
     let original: String
+    let word: String
+    let converted: String
     let replacementRange: NSRange
     let previousMode: String
     let convertedMode: String
   }
   private var automaticConversionUndo: AutomaticConversionUndo?
+  /// An undone conversion becomes an exception candidate once the user types on past the restored
+  /// word. Backspace instead means the restored text is still being edited, so nothing is kept.
+  private struct UndoneConversion {
+    weak var client: AnyObject?
+    let original: String
+    let converted: String
+  }
+  private var undoneConversion: UndoneConversion?
   var automaticLayoutChangeCommitted: (AutomaticLayoutChangeDirection) -> Void = { _ in }
   var automaticLayoutChangeUndone: () -> Void = {}
   var selectsClientInputModeForLayoutChanges: () -> Bool = {
@@ -373,6 +383,7 @@ public class InputReceiver: InputTextDelegate {
             })
       let converted =
         hasHangul && !isRepeatedHangulJamo && eligible
+          && !configuration.isHangulLayoutAutocorrectionException(original)
           && !RomanLayoutAutocorrector.isNumberWithHangulCounter(original)
           && RomanLayoutAutocorrector.isKnownEnglishExpression(
             bufferedHangulRomanOutput, isKnownWord: romanAutocorrectionKnownEnglishWord)
@@ -560,6 +571,7 @@ public class InputReceiver: InputTextDelegate {
       let previousMode = composer.inputMode
       let converted: String? =
         isKnownEnglish || RomanLayoutAutocorrector.isCodeLikeToken(roman.composedString)
+          || configuration.isHangulLayoutAutocorrectionException(original)
         ? nil
         : RomanLayoutAutocorrector.convert(roman.bufferedPhysicalKeys, keyboard: keyboard)
           ?? RomanLayoutAutocorrector.convertEnglishPrefixWithHangulSuffix(
@@ -680,6 +692,13 @@ public class InputReceiver: InputTextDelegate {
     text string: String?, key keyCode: KeyCode, modifiers flags: NSEvent.ModifierFlags,
     client sender: IMKTextInput & IMKUnicodeTextInput, allowsCommands: Bool
   ) -> InputResult {
+    if let undone = undoneConversion {
+      undoneConversion = nil
+      if keyCode != .delete, undone.client === (sender as AnyObject) {
+        Configuration.shared.addHangulLayoutAutocorrectionExceptionCandidate(
+          original: undone.original, converted: undone.converted)
+      }
+    }
     if undoAutomaticConversion(key: keyCode, modifiers: flags, client: sender) {
       return .processed
     }
@@ -760,7 +779,8 @@ public class InputReceiver: InputTextDelegate {
     default: return
     }
     automaticConversionUndo = AutomaticConversionUndo(
-      client: client as AnyObject, original: original + boundary,
+      client: client as AnyObject, original: original + boundary, word: original,
+      converted: converted,
       replacementRange: NSRange(
         location: start, length: (converted as NSString).length + (boundary as NSString).length),
       previousMode: previousMode, convertedMode: composer.inputMode)
@@ -793,6 +813,8 @@ public class InputReceiver: InputTextDelegate {
       return false
     }
     client.insertText(undo.original, replacementRange: undo.replacementRange)
+    undoneConversion = UndoneConversion(
+      client: client as AnyObject, original: undo.word, converted: undo.converted)
     romanAutocorrectionSuppressed = false
     hangulAutocorrectionSuppressed = false
     automaticLayoutChangeUndone()

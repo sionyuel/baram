@@ -2700,6 +2700,56 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
     XCTAssertEqual(app.client.string, "5층 ")
   }
 
+  func testAnUndoneConversionKeptByTypingOnBecomesACandidateUntilApproved() {
+    let configuration = Configuration.shared
+    let app = app()
+    typeWord(app, "jfshea")
+    XCTAssertEqual(app.client.string, "안녕 ")
+    XCTAssertTrue(app.inputDelete())
+    XCTAssertEqual(app.client.string, "jfshea ")
+    XCTAssertEqual(configuration.hangulLayoutAutocorrectionExceptionCandidates, [:])
+    typeWord(app, "jfshea")
+    XCTAssertEqual(
+      configuration.hangulLayoutAutocorrectionExceptionCandidates, ["jfshea": "안녕"])
+    // A candidate alone changes nothing.
+    XCTAssertEqual(app.client.string, "jfshea 안녕 ")
+
+    configuration.approveHangulLayoutAutocorrectionExceptionCandidate("jfshea")
+    XCTAssertEqual(configuration.hangulLayoutAutocorrectionExceptionCandidates, [:])
+    XCTAssertEqual(configuration.hangulLayoutAutocorrectionExceptions, ["jfshea": "안녕"])
+    let approved = self.app()
+    typeWord(approved, "jfshea")
+    XCTAssertEqual(approved.client.string, "jfshea ")
+  }
+
+  func testAnApprovedHangulWordIsNotTurnedIntoEnglish() {
+    let configuration = Configuration.shared
+    let app = app()
+    app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    typeWord(app, "apple")
+    XCTAssertEqual(app.client.string, "apple ")
+    XCTAssertTrue(app.inputDelete())
+    let hangul = app.client.string.trimmingCharacters(in: .whitespaces)
+    XCTAssertNotEqual(hangul, "apple")
+    app.inputText(" ", key: .space)
+    XCTAssertEqual(configuration.hangulLayoutAutocorrectionExceptionCandidates, [hangul: "apple"])
+
+    configuration.approveHangulLayoutAutocorrectionExceptionCandidate(hangul)
+    let approved = self.app()
+    approved.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    typeWord(approved, "apple")
+    XCTAssertEqual(approved.client.string, hangul + " ")
+  }
+
+  func testEditingTheRestoredWordDoesNotMakeACandidate() {
+    let app = app()
+    typeWord(app, "jfshea")
+    XCTAssertTrue(app.inputDelete())
+    app.inputDelete()
+    app.inputKeys("x")
+    XCTAssertEqual(Configuration.shared.hangulLayoutAutocorrectionExceptionCandidates, [:])
+  }
+
   func testChangingClientsCommitsTheOriginalWordOnlyToItsOwner() {
     let app = app()
     app.inputKeys("jfshea")
@@ -3103,7 +3153,7 @@ class PreferencesFormTests: IsolatedChordConfigurationTests {
   private func assertPageKeyLoops(identity: InputMethodIdentity) throws {
     let (window, child) = try form(identity: identity)
     var advanced = ["두벌식 종성 결합", "조합 상태 유지", "Esc로 로마자 전환"]
-    if identity.isBaram { advanced.append("실험 · 자동 한영 전환") }
+    if identity.isBaram { advanced += ["실험 · 자동 한영 전환", "자동 전환 예외 열기"] }
     if identity.supportsPhysicalChording {
       advanced.append(contentsOf: ["동시에 누른 키 묶기", "키 감지 권한 허용"])
     }

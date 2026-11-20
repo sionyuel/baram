@@ -105,6 +105,11 @@ enum ConfigurationName {
   /// 완성형 세벌식 자동변환을 제외 앱 이외의 모든 앱에서 사용.
   public static let hangulLayoutAutocorrectionAllApplications =
     "HangulLayoutAutocorrectionAllApplications"
+  /// 자동 전환을 되돌린 뒤 원래 글자를 그대로 둔 단어(원문 → 전환 결과). 사용자 승인 전 후보.
+  public static let hangulLayoutAutocorrectionExceptionCandidates =
+    "HangulLayoutAutocorrectionExceptionCandidates"
+  /// 사용자가 승인해 다시는 자동 전환하지 않는 단어(원문 → 전환 결과).
+  public static let hangulLayoutAutocorrectionExceptions = "HangulLayoutAutocorrectionExceptions"
   /// 한글 입력기일 때 역따옴표(`)로 원화 기호(₩) 입력.
   public static let hangulWonCurrencySymbolForBackQuote = "HangulWonCurrencySymbolForBackQuote"
   /// 한글 입력기에서 물리적 역따옴표(`) 키로 입력할 사용자 지정 문자.
@@ -390,6 +395,51 @@ public class Configuration: UserDefaults {
   public var hangulLayoutAutocorrectionAllApplications: Bool {
     get { bool(forKey: ConfigurationName.hangulLayoutAutocorrectionAllApplications) }
     set { set(newValue, forKey: ConfigurationName.hangulLayoutAutocorrectionAllApplications) }
+  }
+
+  public var hangulLayoutAutocorrectionExceptionCandidates: [String: String] {
+    get { stringPairs(forKey: ConfigurationName.hangulLayoutAutocorrectionExceptionCandidates) }
+    set {
+      setStringPairs(
+        newValue, forKey: ConfigurationName.hangulLayoutAutocorrectionExceptionCandidates)
+    }
+  }
+
+  public var hangulLayoutAutocorrectionExceptions: [String: String] {
+    get { stringPairs(forKey: ConfigurationName.hangulLayoutAutocorrectionExceptions) }
+    set { setStringPairs(newValue, forKey: ConfigurationName.hangulLayoutAutocorrectionExceptions) }
+  }
+
+  /// A word the user has kept twice over: once by undoing its conversion, once by approving it.
+  public func isHangulLayoutAutocorrectionException(_ original: String) -> Bool {
+    hangulLayoutAutocorrectionExceptions[original] != nil
+  }
+
+  /// Remembers an undone conversion for the user to approve; approved words are not offered.
+  public func addHangulLayoutAutocorrectionExceptionCandidate(original: String, converted: String) {
+    guard !original.isEmpty, !converted.isEmpty,
+      !isHangulLayoutAutocorrectionException(original)
+    else { return }
+    hangulLayoutAutocorrectionExceptionCandidates[original] = converted
+  }
+
+  public func approveHangulLayoutAutocorrectionExceptionCandidate(_ original: String) {
+    var candidates = hangulLayoutAutocorrectionExceptionCandidates
+    guard let converted = candidates.removeValue(forKey: original) else { return }
+    hangulLayoutAutocorrectionExceptionCandidates = candidates
+    hangulLayoutAutocorrectionExceptions[original] = converted
+  }
+
+  private func stringPairs(forKey key: String) -> [String: String] {
+    guard let values = dictionary(forKey: key) else { return [:] }
+    return values.reduce(into: [:]) { result, entry in
+      guard !entry.key.isEmpty, let value = entry.value as? String, !value.isEmpty else { return }
+      result[entry.key] = value
+    }
+  }
+
+  private func setStringPairs(_ pairs: [String: String], forKey key: String) {
+    set(pairs.filter { !$0.key.isEmpty && !$0.value.isEmpty }, forKey: key)
   }
 
   public func usesHangulLayoutAutocorrection(for bundleIdentifier: String?) -> Bool {
