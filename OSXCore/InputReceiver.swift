@@ -7,6 +7,7 @@
 //
 
 import AppKit
+import CoreServices
 import Foundation
 import Hangul
 import InputMethodKit
@@ -103,6 +104,16 @@ enum RomanLayoutAutocorrector {
       (0x1100...0x11FF).contains(first.value) || (0x3130...0x318F).contains(first.value)
     else { return false }
     return scalars.dropFirst().allSatisfy { $0 == first }
+  }
+
+  /// A number followed by whole syllables (`5층`, `3개`, `10시`). Three-set Shift keys type
+  /// digits, so the same keys spell capitalized English (`Yoga`), but complete Hangul after a
+  /// number is a counted quantity the user meant.
+  static func isNumberWithHangulCounter(_ output: String) -> Bool {
+    let scalars = Array(output.unicodeScalars)
+    let digits = scalars.prefix { (48...57).contains($0.value) }
+    let rest = scalars.dropFirst(digits.count)
+    return !digits.isEmpty && !rest.isEmpty && rest.allSatisfy(isHangulSyllable)
   }
 
   /// Tokens that read as code, paths or flags. They stay English in both directions of the
@@ -255,6 +266,13 @@ public class InputReceiver: InputTextDelegate {
         (65...90).contains($0.value) || (97...122).contains($0.value)
       })
     else { return false }
+    // The spelling checker accepts any run of Roman-numeral letters (`llvx`, three-set 쪽), so
+    // those words also need a dictionary entry (`mid`, `vivid`).
+    if word.lowercased().allSatisfy({ "ivxlcdm".contains($0) }) {
+      let length = (word as NSString).length
+      return DCSCopyTextDefinition(nil, word as CFString, CFRange(location: 0, length: length))
+        != nil
+    }
     let range = NSSpellChecker.shared.checkSpelling(
       of: word, startingAt: 0, language: "en_US", wrap: false,
       inSpellDocumentWithTag: 0, wordCount: nil)
@@ -355,6 +373,7 @@ public class InputReceiver: InputTextDelegate {
             })
       let converted =
         hasHangul && !isRepeatedHangulJamo && eligible
+          && !RomanLayoutAutocorrector.isNumberWithHangulCounter(original)
           && RomanLayoutAutocorrector.isKnownEnglishExpression(
             bufferedHangulRomanOutput, isKnownWord: romanAutocorrectionKnownEnglishWord)
         ? bufferedHangulRomanOutput : nil

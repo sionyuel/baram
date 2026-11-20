@@ -2680,6 +2680,25 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
     XCTAssertEqual(plain.client.string, "안 ")
   }
 
+  func testRomanNumeralLettersNeedADictionaryEntryToStayEnglish() {
+    // macOS spelling accepts any Roman-numeral letters, which made three-set 쪽 (`llvx`) English.
+    let isKnown = ModerateApp().controller.receiver.romanAutocorrectionKnownEnglishWord
+    XCTAssertFalse(isKnown("llvx"))
+    XCTAssertTrue(isKnown("vivid"))
+    let app = app()
+    app.controller.receiver.romanAutocorrectionKnownEnglishWord = isKnown
+    typeWord(app, "llvx")
+    XCTAssertEqual(app.client.string, "쪽 ")
+  }
+
+  func testNumberWithCounterStaysHangulEvenWhenItsKeysSpellEnglish() {
+    let app = app()
+    app.controller.receiver.romanAutocorrectionKnownEnglishWord = { $0.lowercased() == "yoga" }
+    app.controller.receiver.composer.inputMode = GureumInputSource.han3Final.rawValue
+    typeWord(app, "Yoga")
+    XCTAssertEqual(app.client.string, "5층 ")
+  }
+
   func testChangingClientsCommitsTheOriginalWordOnlyToItsOwner() {
     let app = app()
     app.inputKeys("jfshea")
