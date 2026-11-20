@@ -2688,7 +2688,8 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
     let app = app()
     app.controller.receiver.romanAutocorrectionKnownEnglishWord = isKnown
     typeWord(app, "llvx")
-    XCTAssertEqual(app.client.string, "쪽 ")
+    typeWord(app, "lvldx")
+    XCTAssertEqual(app.client.string, "쪽 조직 ")
   }
 
   func testNumberWithCounterStaysHangulEvenWhenItsKeysSpellEnglish() {
