@@ -2692,6 +2692,14 @@ class HangulLayoutAutocorrectionTests: IsolatedChordConfigurationTests {
     XCTAssertEqual(app.client.string, "쪽 조직 ")
   }
 
+  func testLowercaseTrainAcronymsStayEnglish() {
+    let app = app()
+    app.controller.receiver.romanAutocorrectionKnownEnglishWord = { _ in false }
+    typeWord(app, "ktx")
+    typeWord(app, "srt")
+    XCTAssertEqual(app.client.string, "ktx srt ")
+  }
+
   func testNumberWithCounterStaysHangulEvenWhenItsKeysSpellEnglish() {
     let app = app()
     app.controller.receiver.romanAutocorrectionKnownEnglishWord = { $0.lowercased() == "yoga" }

@@ -17,7 +17,8 @@ let debugInputReceiver = false
 /// Observed technical terms that system spelling dictionaries may omit. This supplies only
 /// word evidence; callers retain automatic-conversion eligibility and ownership checks.
 enum BuiltInTechnicalTermLexicon {
-  private static let terms: Set<String> = ["github", "tailscale"]
+  // Lowercase acronyms too: spelling accepts only their all-caps form (`KTX`, not `ktx` -> 걱).
+  private static let terms: Set<String> = ["github", "ktx", "srt", "tailscale"]
 
   static func contains(_ word: String) -> Bool {
     terms.contains(word.lowercased())
