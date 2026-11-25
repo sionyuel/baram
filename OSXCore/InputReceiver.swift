@@ -7,6 +7,7 @@
 //
 
 import AppKit
+import CoreServices
 import Foundation
 import Hangul
 import InputMethodKit
@@ -16,7 +17,9 @@ let debugInputReceiver = false
 /// Observed technical terms that system spelling dictionaries may omit. This supplies only
 /// word evidence; callers retain automatic-conversion eligibility and ownership checks.
 enum BuiltInTechnicalTermLexicon {
-  private static let terms: Set<String> = ["github", "tailscale"]
+  // Lowercase acronyms too: spelling accepts only their all-caps form (`KTX`, not `ktx` -> 걱;
+  // `mfa` -> 항).
+  private static let terms: Set<String> = ["github", "ktx", "mfa", "srt", "tailscale"]
 
   static func contains(_ word: String) -> Bool {
     terms.contains(word.lowercased())
@@ -103,6 +106,16 @@ enum RomanLayoutAutocorrector {
       (0x1100...0x11FF).contains(first.value) || (0x3130...0x318F).contains(first.value)
     else { return false }
     return scalars.dropFirst().allSatisfy { $0 == first }
+  }
+
+  /// A number followed by whole syllables (`5층`, `3개`, `10시`). Three-set Shift keys type
+  /// digits, so the same keys spell capitalized English (`Yoga`), but complete Hangul after a
+  /// number is a counted quantity the user meant.
+  static func isNumberWithHangulCounter(_ output: String) -> Bool {
+    let scalars = Array(output.unicodeScalars)
+    let digits = scalars.prefix { (48...57).contains($0.value) }
+    let rest = scalars.dropFirst(digits.count)
+    return !digits.isEmpty && !rest.isEmpty && rest.allSatisfy(isHangulSyllable)
   }
 
   /// Tokens that read as code, paths or flags. They stay English in both directions of the
@@ -235,11 +248,21 @@ public class InputReceiver: InputTextDelegate {
   private struct AutomaticConversionUndo {
     weak var client: AnyObject?
     let original: String
+    let word: String
+    let converted: String
     let replacementRange: NSRange
     let previousMode: String
     let convertedMode: String
   }
   private var automaticConversionUndo: AutomaticConversionUndo?
+  /// An undone conversion becomes an exception candidate once the user types on past the restored
+  /// word. Backspace instead means the restored text is still being edited, so nothing is kept.
+  private struct UndoneConversion {
+    weak var client: AnyObject?
+    let original: String
+    let converted: String
+  }
+  private var undoneConversion: UndoneConversion?
   var automaticLayoutChangeCommitted: (AutomaticLayoutChangeDirection) -> Void = { _ in }
   var automaticLayoutChangeUndone: () -> Void = {}
   var selectsClientInputModeForLayoutChanges: () -> Bool = {
@@ -255,6 +278,13 @@ public class InputReceiver: InputTextDelegate {
         (65...90).contains($0.value) || (97...122).contains($0.value)
       })
     else { return false }
+    // The spelling checker accepts any run of Roman-numeral letters (`llvx`, three-set 쪽), so
+    // those words also need a dictionary entry (`mid`, `vivid`).
+    if word.lowercased().allSatisfy({ "ivxlcdm".contains($0) }) {
+      let length = (word as NSString).length
+      return DCSCopyTextDefinition(nil, word as CFString, CFRange(location: 0, length: length))
+        != nil
+    }
     let range = NSSpellChecker.shared.checkSpelling(
       of: word, startingAt: 0, language: "en_US", wrap: false,
       inSpellDocumentWithTag: 0, wordCount: nil)
@@ -355,6 +385,8 @@ public class InputReceiver: InputTextDelegate {
             })
       let converted =
         hasHangul && !isRepeatedHangulJamo && eligible
+          && !configuration.isHangulLayoutAutocorrectionException(original)
+          && !RomanLayoutAutocorrector.isNumberWithHangulCounter(original)
           && RomanLayoutAutocorrector.isKnownEnglishExpression(
             bufferedHangulRomanOutput, isKnownWord: romanAutocorrectionKnownEnglishWord)
         ? bufferedHangulRomanOutput : nil
@@ -541,6 +573,7 @@ public class InputReceiver: InputTextDelegate {
       let previousMode = composer.inputMode
       let converted: String? =
         isKnownEnglish || RomanLayoutAutocorrector.isCodeLikeToken(roman.composedString)
+          || configuration.isHangulLayoutAutocorrectionException(original)
         ? nil
         : RomanLayoutAutocorrector.convert(roman.bufferedPhysicalKeys, keyboard: keyboard)
           ?? RomanLayoutAutocorrector.convertEnglishPrefixWithHangulSuffix(
@@ -661,6 +694,13 @@ public class InputReceiver: InputTextDelegate {
     text string: String?, key keyCode: KeyCode, modifiers flags: NSEvent.ModifierFlags,
     client sender: IMKTextInput & IMKUnicodeTextInput, allowsCommands: Bool
   ) -> InputResult {
+    if let undone = undoneConversion {
+      undoneConversion = nil
+      if keyCode != .delete, undone.client === (sender as AnyObject) {
+        Configuration.shared.addHangulLayoutAutocorrectionExceptionCandidate(
+          original: undone.original, converted: undone.converted)
+      }
+    }
     if undoAutomaticConversion(key: keyCode, modifiers: flags, client: sender) {
       return .processed
     }
@@ -741,7 +781,8 @@ public class InputReceiver: InputTextDelegate {
     default: return
     }
     automaticConversionUndo = AutomaticConversionUndo(
-      client: client as AnyObject, original: original + boundary,
+      client: client as AnyObject, original: original + boundary, word: original,
+      converted: converted,
       replacementRange: NSRange(
         location: start, length: (converted as NSString).length + (boundary as NSString).length),
       previousMode: previousMode, convertedMode: composer.inputMode)
@@ -774,6 +815,8 @@ public class InputReceiver: InputTextDelegate {
       return false
     }
     client.insertText(undo.original, replacementRange: undo.replacementRange)
+    undoneConversion = UndoneConversion(
+      client: client as AnyObject, original: undo.word, converted: undo.converted)
     romanAutocorrectionSuppressed = false
     hangulAutocorrectionSuppressed = false
     automaticLayoutChangeUndone()

@@ -746,6 +746,11 @@ final class PreferenceViewController: NSViewController, NSTextFieldDelegate {
     if productIdentity.isBaram {
       applicationRows.append(
         settingRow("실험 · 자동 한영 전환", control: autocorrectionApplicationMenu))
+      applicationRows.append(
+        settingRow(
+          "자동 전환 예외",
+          control: settingsButton(
+            for: "자동 전환 예외", action: #selector(showAutocorrectionExceptions(_:)))))
     }
     let applicationHelp =
       productIdentity.isBaram
@@ -1089,6 +1094,10 @@ final class PreferenceViewController: NSViewController, NSTextFieldDelegate {
       applications: configuration.hangulLayoutAutocorrectionApplications,
       summaryOverride: allApplications ? "모든 앱" : nil,
       offersAllApplications: true, allApplicationsEnabled: allApplications)
+  }
+
+  @objc private func showAutocorrectionExceptions(_ sender: Any?) {
+    presentAsSheet(AutocorrectionExceptionsViewController(configuration: configuration))
   }
 
   @objc private func autocorrectionApplicationMenuChanged(_ sender: NSPopUpButton) {
@@ -1516,4 +1525,178 @@ extension PreferenceViewController {
       }
     #endif
   }
+}
+
+/// Words whose automatic conversion the user undid and then kept. Candidates change nothing until
+/// approved here; approved words are never converted again. The export is for reporting words
+/// that should become built-in rules.
+final class AutocorrectionExceptionsViewController: NSViewController {
+  private let configuration: Configuration
+  private let content = NSStackView()
+
+  init(configuration: Configuration) {
+    self.configuration = configuration
+    super.init(nibName: nil, bundle: nil)
+  }
+
+  required init?(coder: NSCoder) { nil }
+
+  override func loadView() {
+    let root = NSView(frame: NSRect(x: 0, y: 0, width: 440, height: 420))
+    let title = NSTextField(labelWithString: "자동 전환 예외")
+    title.font = .boldSystemFont(ofSize: 15)
+    let help = NSTextField(
+      wrappingLabelWithString:
+        "자동 전환을 Backspace로 되돌린 뒤 원래 글자를 그대로 둔 단어가 승인 대기에 모입니다. 승인한 단어는 다시 자동 전환하지 않습니다. 내보낸 파일을 공유하면 기본 규칙에 반영할 수 있습니다."
+    )
+    help.font = .systemFont(ofSize: 11)
+    help.textColor = .secondaryLabelColor
+    content.orientation = .vertical
+    content.alignment = .leading
+    content.spacing = 6
+    let scroll = NSScrollView()
+    scroll.hasVerticalScroller = true
+    scroll.drawsBackground = false
+    let document = FlippedView()
+    document.addSubview(content)
+    content.translatesAutoresizingMaskIntoConstraints = false
+    document.translatesAutoresizingMaskIntoConstraints = false
+    scroll.documentView = document
+    let export = NSButton(title: "내보내기…", target: self, action: #selector(exportList(_:)))
+    let close = NSButton(title: "닫기", target: self, action: #selector(closeSheet(_:)))
+    close.keyEquivalent = "\r"
+    for view in [title, help, scroll, export, close] {
+      view.translatesAutoresizingMaskIntoConstraints = false
+      root.addSubview(view)
+    }
+    NSLayoutConstraint.activate([
+      title.topAnchor.constraint(equalTo: root.topAnchor, constant: 20),
+      title.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 20),
+      help.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 8),
+      help.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 20),
+      help.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20),
+      scroll.topAnchor.constraint(equalTo: help.bottomAnchor, constant: 12),
+      scroll.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 20),
+      scroll.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20),
+      scroll.bottomAnchor.constraint(equalTo: close.topAnchor, constant: -16),
+      document.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor),
+      document.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor),
+      document.topAnchor.constraint(equalTo: scroll.contentView.topAnchor),
+      content.leadingAnchor.constraint(equalTo: document.leadingAnchor),
+      content.trailingAnchor.constraint(equalTo: document.trailingAnchor),
+      content.topAnchor.constraint(equalTo: document.topAnchor),
+      content.bottomAnchor.constraint(equalTo: document.bottomAnchor),
+      export.leadingAnchor.constraint(equalTo: root.leadingAnchor, constant: 20),
+      export.centerYAnchor.constraint(equalTo: close.centerYAnchor),
+      close.trailingAnchor.constraint(equalTo: root.trailingAnchor, constant: -20),
+      close.bottomAnchor.constraint(equalTo: root.bottomAnchor, constant: -20),
+    ])
+    view = root
+    reload()
+  }
+
+  private func reload() {
+    for view in content.arrangedSubviews { view.removeFromSuperview() }
+    let candidates = configuration.hangulLayoutAutocorrectionExceptionCandidates
+    let exceptions = configuration.hangulLayoutAutocorrectionExceptions
+    addHeader("승인 대기")
+    if candidates.isEmpty { addEmpty("되돌린 단어가 없습니다.") }
+    for original in candidates.keys.sorted() {
+      addRow(
+        original: original, converted: candidates[original]!,
+        actions: [("승인", #selector(approve(_:))), ("버리기", #selector(discard(_:)))])
+    }
+    addHeader("예외")
+    if exceptions.isEmpty { addEmpty("승인한 단어가 없습니다.") }
+    for original in exceptions.keys.sorted() {
+      addRow(
+        original: original, converted: exceptions[original]!,
+        actions: [("삭제", #selector(remove(_:)))])
+    }
+  }
+
+  private func addHeader(_ text: String) {
+    let label = NSTextField(labelWithString: text)
+    label.font = .boldSystemFont(ofSize: 12)
+    content.addArrangedSubview(label)
+    content.setCustomSpacing(4, after: label)
+  }
+
+  private func addEmpty(_ text: String) {
+    let label = NSTextField(labelWithString: text)
+    label.font = .systemFont(ofSize: 11)
+    label.textColor = .secondaryLabelColor
+    content.addArrangedSubview(label)
+  }
+
+  private func addRow(original: String, converted: String, actions: [(String, Selector)]) {
+    let label = NSTextField(labelWithString: "\(original) → \(converted)")
+    label.lineBreakMode = .byTruncatingMiddle
+    label.setAccessibilityLabel("\(original), 자동 전환 결과 \(converted)")
+    var views: [NSView] = [label]
+    for (title, action) in actions {
+      let button = NSButton(title: title, target: self, action: action)
+      button.controlSize = .small
+      button.identifier = NSUserInterfaceItemIdentifier(original)
+      button.setAccessibilityLabel("\(original) \(title)")
+      views.append(button)
+    }
+    let row = NSStackView(views: views)
+    row.orientation = .horizontal
+    row.distribution = .fill
+    row.spacing = 8
+    label.setContentHuggingPriority(.defaultLow, for: .horizontal)
+    label.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+    content.addArrangedSubview(row)
+    row.widthAnchor.constraint(equalTo: content.widthAnchor).isActive = true
+  }
+
+  private func word(of sender: NSButton) -> String? { sender.identifier?.rawValue }
+
+  @objc private func approve(_ sender: NSButton) {
+    guard let word = word(of: sender) else { return }
+    configuration.approveHangulLayoutAutocorrectionExceptionCandidate(word)
+    reload()
+  }
+
+  @objc private func discard(_ sender: NSButton) {
+    guard let word = word(of: sender) else { return }
+    configuration.hangulLayoutAutocorrectionExceptionCandidates.removeValue(forKey: word)
+    reload()
+  }
+
+  @objc private func remove(_ sender: NSButton) {
+    guard let word = word(of: sender) else { return }
+    configuration.hangulLayoutAutocorrectionExceptions.removeValue(forKey: word)
+    reload()
+  }
+
+  @objc private func exportList(_ sender: Any?) {
+    guard let window = view.window else { return }
+    let panel = NSSavePanel()
+    panel.nameFieldStringValue = "Baram-자동전환-예외.json"
+    panel.allowedContentTypes = [.json]
+    let report: [String: Any] = [
+      "candidates": configuration.hangulLayoutAutocorrectionExceptionCandidates,
+      "exceptions": configuration.hangulLayoutAutocorrectionExceptions,
+    ]
+    panel.beginSheetModal(for: window) { [weak self] response in
+      guard response == .OK, let url = panel.url else { return }
+      do {
+        let data = try JSONSerialization.data(
+          withJSONObject: report, options: [.prettyPrinted, .sortedKeys])
+        try data.write(to: url)
+      } catch {
+        self?.presentError(error)
+      }
+    }
+  }
+
+  @objc private func closeSheet(_ sender: Any?) {
+    dismiss(sender)
+  }
+}
+
+private final class FlippedView: NSView {
+  override var isFlipped: Bool { true }
 }
